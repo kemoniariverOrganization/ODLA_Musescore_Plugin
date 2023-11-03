@@ -30,138 +30,59 @@ MuseScore
             webSocket.onTextMessageReceived.connect(function(message)
             {
                 var data = JSON.parse(message);
+                var cursor = curScore.newCursor()
+                //debug("par3: " + data.par3 + " par4: " + data.par4)
 
                 switch (data.par1)
                 {
-					case "staff-pressed":
-						debug("pressed staff n. :" + data.par3)
-						var staff_pressed = data.par3;
-						addNoteToScore(staff_pressed); // TODO: make command related to clef
-						break;
+                    case "staff-pressed":
+                        addNoteToScore(data.par3);
+                        break;
 
-					default:
-						var cursor = curScore.newCursor()
-
-						debug("TODO: " + message);
-						cursor.inputStateMode=Cursor.INPUT_STATE_SYNC_WITH_SCORE
-						curScore.startCmd()
-						cmd(data.par1)
-						curScore.endCmd()
+                    default:
+                        debug("TODO: " + message);
+                        cursor.inputStateMode=Cursor.INPUT_STATE_SYNC_WITH_SCORE
+                        curScore.startCmd()
+                        cmd(data.par1)
+                        curScore.endCmd()
                 }
             });
         }
     }
-
-    property var odlaKeyToPosMap:
-    {
-        "13": 6.5,
-        "12": 6.0,
-        "11": 5.5,
-        "10": 5.0,
-        "9": 4.5,
-        "8": 4.0,
-        "7": 3.5,
-        "6": 3.0,
-        "5": 2.5,
-        "4": 2.0,
-        "3": 1.5,
-        "2": 1.0,
-        "1": 0.5,
-        "0": 0.0,
-        "-1": -0.5,
-        "-2": -1.0,
-        "-3": -1.5,
-        "-4": -2.0,
-        "-5": -2.5
-    }
-    // TODO testare solo do centrale (6) e a seconda della y pos trovare la chiave
-    /* // creare matrice di pitch e variare seconda della chiave (e poi della tonalità)
-    Violino: 5
-    Violino+8 = 8.5
-    Violino+15 = 12.000000000000002
-    Violino-8 = 1.5000000000000002
-    Alto = 2
-    Tenore = 1
-    Basso = -1
-    Basso+15 = 6
-    Basso+8 = 2.5
-    Basso-8 = -4.5
-    Basso-15 = -8
-    MezzoSoprano = 3.0000000000000004
-    Soprano = 4
-    Baritono = 0
-    */
-    property var odlaKeyToPitchMap:
-    {
-        "13": 55,   // G3
-        "12": 57,   // A3
-        "11": 59,   // B3
-        "10": 60,   // C4
-        "9": 62,    // D4
-        "8": 64,    // E4
-        "7": 65,    // F4
-        "6": 67,    // G4
-        "5": 69,    // A4
-        "4": 71,    // B4
-        "3": 72,    // C5
-        "2": 74,    // D5
-        "1": 76,    // E5
-        "0": 77,    // F5
-        "-1": 79,   // G5
-        "-2": 81,   // A5
-        "-3": 83,   // B5
-        "-4": 84,   // C6
-        "-5": 86    // D6
-    }
-
 
     function addNoteToScore(odlaKey)
     {
         var cursor = curScore.newCursor()
         cursor.inputStateMode=Cursor.INPUT_STATE_SYNC_WITH_SCORE
 
-        var currentNote = testPos(odlaKeyToPitchMap[odlaKey], odlaKey, cursor)
-        var pitchCorrection = ( odlaKeyToPosMap[odlaKey] -  currentNote.posY)
-
-        if(pitchCorrection !== 0)
-        {
-            for (var key in odlaKeyToPitchMap)
-            {
-                var corr = pitchCorrection
-                while(corr > 0.1)
-                {
-                    var n = testPos(odlaKeyToPitchMap[key], key, cursor)
-                    corr = ( odlaKeyToPosMap[key] -  n.posY).toFixed(1)
-                    odlaKeyToPitchMap[key] -= corr
-                }
-            }
-        }
+        var pitch = getPitch(odlaKey, cursor, 0);
 
         curScore.startCmd()
-        cursor.addNote(odlaKeyToPitchMap[odlaKey])
+        cursor.addNote(pitch);
+
+        debug("accidental: " + cursor.element.notes[0].accidental);
+        debug("accidentalType: " + cursor.element.notes[0].accidentalType);
         playCursor(cursor)
-		curScore.endCmd()
+        curScore.endCmd()
     }
 
-    function testPos(pitchToTest, odlaKey, cursor)
+    function testPitch(cursor, pitch)
     {
         cursor.inputStateMode=Cursor.INPUT_STATE_SYNC_WITH_SCORE
-        var key = odlaKey.toString()
-        var correctYPos = odlaKeyToPosMap[key]
         curScore.startCmd()
-        cursor.addNote(pitchToTest)
+        cursor.addNote(pitch)
         curScore.endCmd()
         cursor.prev()
-        var currentNote = cursor.element.notes[0]
+        var retVal = cursor.element.notes[0];
         cmd("undo")
-        return currentNote
+        return retVal;
     }
 
     function listProperties(item) {
         var properties = ""
         for (var p in item)
             if (typeof item[p] != "function")
-                properties += (p + ": " + item[p] + "\n")
+                properties += ("property " + p + ": " + item[p] + "\n")
         return properties
     }
 
@@ -169,34 +90,150 @@ MuseScore
         var functions = ""
         for (var f in item)
             if (typeof item[f] == "function")
-                functions += (f + ": " + item[f] + "\n")
+                functions += ("function " + f + ": " + item[f] + "\n")
         return functions
     }
-		
-	function playCursor(cursor)
+
+    function playCursor(cursor)
     {
         cursor.prev();
-        if(cursor.element == null) 
+        if(cursor.element === null)
         {
             cmd("prev-chord");
-            cursor.next(); 
+            cursor.next();
             return;
-        } 
-        if(cursor.element.type != 93) 
+        }
+        if(cursor.element.type !== 93)
         {
             cmd("prev-chord");
             cmd("next-chord");
-            cursor.next(); 
+            cursor.next();
             return;
         }
         curScore.selection.select(cursor.element.notes[0]);
         cmd("next-chord");
-        cursor.next(); 
+        cursor.next();
         return;
     }
-	
-	function debug(message) 
-	{
-		console.log("ODLA-Debug: " + message);
-	}
+
+    function getPitch(odlaKey, cursor, keySignature)
+    {
+        // C4 is the 35th natural note since C0
+        var note60 = testPitch(cursor, 60);
+        var pitchIndex = 35 - odlaKey + (2 * note60.posY);
+        var pitch = natural_pitch_since_C0(pitchIndex);
+
+        switch (getNote(pitch))
+        {
+        case "B":
+            if(keySignature >= 7 )
+                return pitch + 1;
+            else if (keySignature <= -1)
+                return pitch -1;
+            break;
+        case "E":
+            if(keySignature >= 6 )
+                return pitch + 1;
+            else if (keySignature <= -2)
+                return pitch -1;
+            break;
+        case "A":
+            if(keySignature >= 5 )
+                return pitch + 1;
+            else if (keySignature <= -3)
+                return pitch -1;
+            break;
+        case "D":
+            if(keySignature >= 4 )
+                return pitch + 1;
+            else if (keySignature <= -4)
+                return pitch -1;
+            break;
+        case "G":
+            if(keySignature >= 3 )
+                return pitch + 1;
+            else if (keySignature <= -5)
+                return pitch -1;
+            break;
+        case "C":
+            if(keySignature >= 2 )
+                return pitch + 1;
+            else if (keySignature <= -6)
+                return pitch -1;
+            break;
+        case "F":
+            if(keySignature >= 1 )
+                return pitch + 1;
+            else if (keySignature <= -7)
+                return pitch -1;
+            break;
+        default:
+            return pitch; // should never happen, already accident in pitch
+        }
+        return pitch; // case without accidental
+
+    }
+
+    function natural_pitch_since_C0(index)
+    {
+        var octave_offset  = Math.floor(index / 7) * 12;
+
+        switch(index % 7)
+        {
+            case 0: // C
+                return octave_offset;
+            case 1: // D
+                return octave_offset + 2;
+            case 2: // E
+                return octave_offset + 4;
+            case 3: // F
+                return octave_offset + 5;
+            case 4: // G
+                return octave_offset + 7;
+            case 5: // A
+                return octave_offset + 9;
+            case 6: // B
+                return octave_offset + 11;
+        }
+    }
+
+    function getNote(pitch)
+    {
+        pitch %= 12;
+        switch (pitch)
+        {
+        case 0 :
+            return "C";
+        case 1 :
+            return "C#Db";
+        case 2 :
+            return "D";
+        case 3 :
+            return "D#Eb";
+        case 4 :
+            return "E";
+        case 5 :
+            return "F";
+        case 6 :
+            return "F#Gb";
+        case 7 :
+            return "G";
+        case 8 :
+            return "G#Ab";
+        case 9 :
+            return "A";
+        case 10 :
+            return "A#Bb";
+        case 11 :
+            return "B";
+        }
+        return "unvalid";
+    }
+
+    function debug(message)
+    {
+        var lines = message.split("\n");
+        for (var i = 0; i < lines.length; i++)
+            console.log("ODLA-Debug: " + lines[i]);
+    }
 }
