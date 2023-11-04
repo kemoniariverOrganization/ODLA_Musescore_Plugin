@@ -10,38 +10,49 @@ MuseScore
     categoryCode: "composing-arranging-tools"
     thumbnailName: "ODLA.png"
     requiresScore: false
-    
+//    property var tryClef;  // variabile globale
+
     onRun:
     {
         debug("ODLA Plugin is running");
     }
-    
+
     WebSocketServer
     {
         port: 6432
         id: server
         listen: true
-        
-        
+
         onClientConnected: function(webSocket)
         {
             debug("Client connected")
-            
+
             webSocket.onTextMessageReceived.connect(function(message)
             {
                 var data = JSON.parse(message);
                 var cursor = curScore.newCursor()
-                //debug("par3: " + data.par3 + " par4: " + data.par4)
-                
+                cursor.inputStateMode=Cursor.INPUT_STATE_SYNC_WITH_SCORE
+
                 switch (data.par1)
                 {
-                case "staff-pressed":
-                    addNoteToScore(data.par3);
+                case "palette":
                     break;
-                    
+
+                case "time-signature":
+                    var ts=newElement(Element.TIMESIG)
+                    ts.timesig=fraction(data.par3,data.par4)
+                    curScore.startCmd()
+                    cursor.add(ts)
+                    curScore.endCmd()
+                    // TODO: common time and alla breve
+                    break;
+
+                case "staff-pressed":
+                    addNoteToScore(data.par3, cursor);
+                    break;
+
                 default:
                     debug("TODO: " + message);
-                    cursor.inputStateMode=Cursor.INPUT_STATE_SYNC_WITH_SCORE
                     curScore.startCmd()
                     cmd(data.par1)
                     curScore.endCmd()
@@ -49,21 +60,17 @@ MuseScore
             });
         }
     }
-    
-    function addNoteToScore(odlaKey)
+
+    function addNoteToScore(odlaKey, cursor)
     {
-        var cursor = curScore.newCursor()
-        cursor.inputStateMode=Cursor.INPUT_STATE_SYNC_WITH_SCORE
-        
         var pitch = getPitch(odlaKey, cursor, cursor.keySignature);
-        
+
         curScore.startCmd()
         cursor.addNote(pitch);
-
-        playCursor(cursor)
-        curScore.endCmd()
+        curScore.endCmd();
+        playCursor(cursor);
     }
-    
+
     function testPitch(cursor, pitch)
     {
         cursor.inputStateMode=Cursor.INPUT_STATE_SYNC_WITH_SCORE
@@ -75,45 +82,15 @@ MuseScore
         cmd("undo")
         return retVal;
     }
-    
-    function listProperties(item) {
-        var properties = ""
-        for (var p in item)
-            if (typeof item[p] != "function")
-                properties += ("property " + p + ": " + item[p] + "\n")
-        return properties
-    }
-    
-    function listFunctions(item) {
-        var functions = ""
-        for (var f in item)
-            if (typeof item[f] == "function")
-                functions += ("function " + f + ": " + item[f] + "\n")
-        return functions
-    }
-    
+
     function playCursor(cursor)
     {
-        cursor.prev();
-        if(cursor.element === null)
-        {
-            cmd("prev-chord");
-            cursor.next();
-            return;
-        }
-        if(cursor.element.type !== 93)
-        {
-            cmd("prev-chord");
-            cmd("next-chord");
-            cursor.next();
-            return;
-        }
-        curScore.selection.select(cursor.element.notes[0]);
+        // I cannot find another way to play note
+        cmd("prev-chord");
         cmd("next-chord");
-        cursor.next();
         return;
     }
-    
+
     /*
         The numerical values corresponding to the ODLA keys range
         from -5 (i.e., the note above the second ledger line above the staff)
@@ -138,7 +115,7 @@ MuseScore
 
         // octave contains the pitch midi of C with the correct octave
         var octave  = Math.floor(pitchIndex / 7) * 12;
-        
+
         switch(pitchIndex % 7)
         {
         case 6:
@@ -178,11 +155,11 @@ MuseScore
                 return octave + 7;       // G
         case 0: // C
             if(keySignature >= 2 )
-            return octave + 1;   // C#
-        else if (keySignature <= -6)
-            return octave -1;    // Cb
-        else
-            return octave;       // C
+                return octave + 1;   // C#
+            else if (keySignature <= -6)
+                return octave -1;    // Cb
+            else
+                return octave;       // C
         case 3: // F
             if(keySignature >= 1 )
                 return octave + 5 + 1;  // F#
@@ -192,7 +169,26 @@ MuseScore
                 return octave + 5;      // F
         }
     }
-    
+
+
+    function printProperties(item) 
+    {
+        var properties = ""
+        for (var p in item)
+            if (typeof item[p] != "function")
+                properties += ("property " + p + ": " + item[p] + "\n")
+        debug(properties);
+    }
+
+    function printFunctions(item) 
+    {
+        var functions = ""
+        for (var f in item)
+            if (typeof item[f] == "function")
+                functions += ("function " + f + ": " + item[f] + "\n")
+        debug(functions);
+    }
+
     function debug(message)
     {
         var lines = message.split("\n");
