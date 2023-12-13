@@ -1,6 +1,7 @@
 import QtQuick 2.2
 import MuseScore 3.0
 import QtWebSockets 1.5
+import QtQuick.Controls 2.2
 
 MuseScore
 {
@@ -10,7 +11,8 @@ MuseScore
     categoryCode: "composing-arranging-tools"
     thumbnailName: "ODLA.png"
     requiresScore: false
-//    property var tryClef;  // variabile globale
+    property var cursor: null
+    property var latestSegment: null
 
     onRun:
     {
@@ -25,30 +27,89 @@ MuseScore
 
         onClientConnected: function(webSocket)
         {
-            debug("Client connected")
+            debug("Client connected");
 
             webSocket.onTextMessageReceived.connect(function(message)
             {
                 var data = JSON.parse(message);
-                var cursor = curScore.newCursor()
+                debug("Message: " + message);
+
+                cursor = curScore.newCursor()
                 cursor.inputStateMode=Cursor.INPUT_STATE_SYNC_WITH_SCORE
+
+                if(data.par2 === "NOTE_ENTRY")
+                    setNoteEntry(true);
+                else if(data.par2 === "NORMAL")
+                    setNoteEntry(false);
 
                 switch (data.par1)
                 {
                 case "palette":
+                    var clef = newElement(Element.CLEF);
+                    clef.text = '<clef staff="2">F</clef>';
+                    curScore.startCmd();
+                    cursor.add(clef);
+                    curScore.endCmd();
                     break;
 
                 case "time-signature":
-                    var ts=newElement(Element.TIMESIG)
-                    ts.timesig=fraction(data.par3,data.par4)
-                    curScore.startCmd()
-                    cursor.add(ts)
-                    curScore.endCmd()
+                    var ts=newElement(Element.TIMESIG);
+                    ts.timesig=fraction(data.par3,data.par4);
+                    curScore.startCmd();
+                    cursor.add(ts);
+                    curScore.endCmd();
                     // TODO: common time and alla breve
                     break;
 
                 case "staff-pressed":
-                    addNoteToScore(data.par3, cursor);
+                    addNoteToScore(data.par3, data.par4 === 1);
+                    break;
+
+                case "insert-measures":
+                    curScore.startCmd();
+                    curScore.appendMeasures(data.par3 ? data.par3 : 1);
+                    curScore.endCmd();
+
+                    break;
+
+
+                case "tempo":
+                    var pattern = "invalid";
+
+                    switch (data.par3)
+                    {
+                    case 0:
+                        pattern = "<sym>metNoteHalfUp</sym> = " + data.par4;
+                        break;
+                    case 1:
+                        pattern = "<sym>metNoteQuarterUp</sym> " + data.par4;
+                        break;
+                    case 2:
+                        pattern = "<sym>metNote8thUp</sym> = " + data.par4;
+                        break;
+                    case 3:
+                        pattern = "<sym>metNoteHalfUp</sym><sym>space</sym><sym>metAugmentationDot</sym> = " + data.par4;
+                        break;
+                    case 4:
+                        pattern = "<sym>metNoteQuarterUp</sym><sym>space</sym><sym>metAugmentationDot</sym> = " + data.par4;
+                        break;
+                    case 5:
+                        pattern = "<sym>metNote8thUp</sym><sym>space</sym><sym>metAugmentationDot</sym> = " + data.par4;
+                        break;
+
+                    default:
+                        break;
+                    }
+                    if(pattern !== "invalid")
+                    {
+                        var tempo = newElement(Element.TEMPO_TEXT);
+                        tempo.followText = 1; // va aggiornato ?
+                        tempo.text = pattern;
+                        tempo.tempo = parseFloat(3); // va aggiornato con il tempo reale
+                        curScore.startCmd();
+                        cursor.add(tempo);
+                        curScore.endCmd();
+                    }
                     break;
 
                 default:
@@ -57,23 +118,34 @@ MuseScore
                     cmd(data.par1)
                     curScore.endCmd()
                 }
+
+                latestSegment = cursor.segment;
             });
         }
     }
 
-    function addNoteToScore(odlaKey, cursor)
+    function setNoteEntry(status)
     {
-        var pitch = getPitch(odlaKey, cursor, cursor.keySignature);
+        //debug(listProperties(cursor));
 
-        curScore.startCmd()
-        cursor.addNote(pitch);
-        curScore.endCmd();
-        playCursor(cursor);
+                if(status === true && cursor.element === null)
+                    cmd("note-input");
+        //        else if(status === false && cursor.segment !== null)
+        //            cmd("notation-escape");
     }
 
-    function testPitch(cursor, pitch)
+    function addNoteToScore(odlaKey, toChord)
     {
-        cursor.inputStateMode=Cursor.INPUT_STATE_SYNC_WITH_SCORE
+        var pitch = getPitch(odlaKey, cursor.keySignature);
+
+        curScore.startCmd()
+        cursor.addNote(pitch, toChord);
+        curScore.endCmd();
+        playCursor();
+    }
+
+    function testPitch(pitch)
+    {
         curScore.startCmd()
         cursor.addNote(pitch)
         curScore.endCmd()
@@ -83,7 +155,7 @@ MuseScore
         return retVal;
     }
 
-    function playCursor(cursor)
+    function playCursor()
     {
         // I cannot find another way to play note
         cmd("prev-chord");
@@ -100,7 +172,7 @@ MuseScore
         of a note on a staff are relative to the first upper line, which is considered 0.
         The space immediately below is considered 0.5, and so on...
     */
-    function getPitch(odlaKey, cursor, keySignature)
+    function getPitch(odlaKey, keySignature)
     {
         // C4 (pitch 60) is the 35th natural note since C-1 (pitch 0)
         var c4Pos = testPitch(cursor, 60).posY;
@@ -111,7 +183,7 @@ MuseScore
 
         // pitchIndex contains an integer representing the number of unaltered
         // (natural) notes starting from the note C-1 (MIDI pitch 0)
-        var pitchIndex = 35 - odlaKey + (2 * c4Pos);
+        var pitchIndex = - odlaKey + (2 * c4Pos);
 
         // octave contains the pitch midi of C with the correct octave
         var octave  = Math.floor(pitchIndex / 7) * 12;
@@ -170,17 +242,16 @@ MuseScore
         }
     }
 
-
-    function printProperties(item) 
+    function listProperties(item)
     {
         var properties = ""
         for (var p in item)
             if (typeof item[p] != "function")
                 properties += ("property " + p + ": " + item[p] + "\n")
-        debug(properties);
+        return properties;
     }
 
-    function printFunctions(item) 
+    function printFunctions(item)
     {
         var functions = ""
         for (var f in item)
