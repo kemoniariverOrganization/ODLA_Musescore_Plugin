@@ -8,7 +8,7 @@ MuseScore
     version: "3.5"
     description: qsTr("This plugin allows the use of the ODLA keyboard in the Musescore program")
     title: "ODLA"
-    categoryCode: "composing-arranging-tools"
+    //categoryCode: "composing-arranging-tools"
     thumbnailName: "ODLA.png"
     requiresScore: false
     property var cursor: null
@@ -21,7 +21,7 @@ MuseScore
 
     WebSocketServer
     {
-        port: 6432
+        port: 6433
         id: server
         listen: true
 
@@ -31,30 +31,32 @@ MuseScore
 
             webSocket.onTextMessageReceived.connect(function(message)
             {
-                var data = JSON.parse(message);
+
+                var odlaCommand = JSON.parse(message);
                 debug("Message: " + message);
 
-                cursor = curScore.newCursor()
-                cursor.inputStateMode=Cursor.INPUT_STATE_SYNC_WITH_SCORE
+                cursor = curScore.newCursor();
+                cursor.inputStateMode=Cursor.INPUT_STATE_SYNC_WITH_SCORE;
 
-                if(data.par2 === "NOTE_ENTRY")
+                if(odlaCommand.par2 === "NOTE_ENTRY")
                     setNoteEntry(true);
-                else if(data.par2 === "NORMAL")
+                else if(odlaCommand.par2 === "NORMAL")
                     setNoteEntry(false);
 
-                switch (data.par1)
+                switch (odlaCommand.type)
                 {
-                case "palette":
-                    var clef = newElement(Element.CLEF);
-                    clef.text = '<clef staff="2">F</clef>';
+                case "dynamics":
+                    var dyn = newElement(Element.DYNAMIC);
+                    dyn.text = odlaCommand.text;
+                    dyn.velocity = odlaCommand.velocity; // it doesn't work
                     curScore.startCmd();
-                    cursor.add(clef);
+                    cursor.add(dyn);
                     curScore.endCmd();
                     break;
 
                 case "time-signature":
                     var ts=newElement(Element.TIMESIG);
-                    ts.timesig=fraction(data.par3,data.par4);
+                    ts.timesig=fraction(odlaCommand.numerator,odlaCommand.denominator);
                     curScore.startCmd();
                     cursor.add(ts);
                     curScore.endCmd();
@@ -62,60 +64,53 @@ MuseScore
                     break;
 
                 case "staff-pressed":
-                    addNoteToScore(data.par3, data.par4 === 1);
+                    addNoteToScore(odlaCommand.odlaKey, odlaCommand.chord,odlaCommand.slur);
+                    break;
+
+                case "accidental":
+                    var sym = newElement(Element.SYMBOL);
+                    sym.symbol = SymId.accidentalDoubleSharp;
+                    sym.offsetX = -1.5;
+                    cursor.add(sym);
                     break;
 
                 case "insert-measures":
                     curScore.startCmd();
-                    curScore.appendMeasures(data.par3 ? data.par3 : 1);
+                    curScore.appendMeasures(odlaCommand.value ? odlaCommand.value : 1);
                     curScore.endCmd();
 
                     break;
 
 
                 case "tempo":
-                    var pattern = "invalid";
-
-                    switch (data.par3)
+                    var tempo = newElement(Element.TEMPO_TEXT);
+                    tempo.followText = 1; // va aggiornato ?
+                    tempo.text = odlaCommand.text + odlaCommand.tempo;
+                    tempo.tempo = parseFloat(odlaCommand.tempo);
+                    curScore.startCmd();
+                    cursor.add(tempo);
+                    curScore.endCmd();
+                    break;
+                case "goto":
+                    var counter = 0;
+                    cursor.rewindToTick(0);
+                    var prevMeasure = cursor.measure;
+                    while (true)
                     {
-                    case 0:
-                        pattern = "<sym>metNoteHalfUp</sym> = " + data.par4;
-                        break;
-                    case 1:
-                        pattern = "<sym>metNoteQuarterUp</sym> " + data.par4;
-                        break;
-                    case 2:
-                        pattern = "<sym>metNote8thUp</sym> = " + data.par4;
-                        break;
-                    case 3:
-                        pattern = "<sym>metNoteHalfUp</sym><sym>space</sym><sym>metAugmentationDot</sym> = " + data.par4;
-                        break;
-                    case 4:
-                        pattern = "<sym>metNoteQuarterUp</sym><sym>space</sym><sym>metAugmentationDot</sym> = " + data.par4;
-                        break;
-                    case 5:
-                        pattern = "<sym>metNote8thUp</sym><sym>space</sym><sym>metAugmentationDot</sym> = " + data.par4;
-                        break;
-
-                    default:
-                        break;
-                    }
-                    if(pattern !== "invalid")
-                    {
-                        var tempo = newElement(Element.TEMPO_TEXT);
-                        tempo.followText = 1; // va aggiornato ?
-                        tempo.text = pattern;
-                        tempo.tempo = parseFloat(3); // va aggiornato con il tempo reale
-                        curScore.startCmd();
-                        cursor.add(tempo);
-                        curScore.endCmd();
+                        if(++counter === odlaCommand.value || prevMeasure.nextMeasure === null)
+                        {
+                            cursor.rewindToTick(prevMeasure.firstSegment.tick);
+                            testPitch(60); // ci arriva ma si ferma solo se scrivi una nota, se provi a spostarti torna dov'erà
+                            break;
+                        }
+                        prevMeasure = prevMeasure.nextMeasure;
                     }
                     break;
 
                 default:
                     debug("TODO: " + message);
                     curScore.startCmd()
-                    cmd(data.par1)
+                    cmd(odlaCommand.type)
                     curScore.endCmd()
                 }
 
@@ -128,20 +123,22 @@ MuseScore
     {
         //debug(listProperties(cursor));
 
-                if(status === true && cursor.element === null)
-                    cmd("note-input");
+        if(status === true && cursor.element === null)
+            cmd("note-input");
         //        else if(status === false && cursor.segment !== null)
         //            cmd("notation-escape");
     }
 
-    function addNoteToScore(odlaKey, toChord)
+    function addNoteToScore(odlaKey, chord, slur)
     {
         var pitch = getPitch(odlaKey, cursor.keySignature);
 
         curScore.startCmd()
-        cursor.addNote(pitch, toChord);
+        cursor.addNote(pitch, chord);
         curScore.endCmd();
         playCursor();
+
+        //TODO: SLUR?
     }
 
     function testPitch(pitch)
@@ -253,17 +250,16 @@ MuseScore
 
     function printFunctions(item)
     {
-        var functions = ""
-        for (var f in item)
-            if (typeof item[f] == "function")
-                functions += ("function " + f + ": " + item[f] + "\n")
-        debug(functions);
+        //        var functions = ""
+        //        for (var f in item)
+        //            if (typeof item[f] == "function")
+        console.log("ODLA-Debug: " + message);
     }
 
     function debug(message)
     {
-        var lines = message.split("\n");
-        for (var i = 0; i < lines.length; i++)
-            console.log("ODLA-Debug: " + lines[i]);
+        //        var lines = message.split("\n");
+        //        for (var i = 0; i < lines.length; i++)
+        console.log("ODLA-Debug: " + message);
     }
 }
