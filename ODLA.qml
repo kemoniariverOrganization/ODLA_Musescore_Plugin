@@ -34,7 +34,6 @@ MuseScore
 
             webSocket.onTextMessageReceived.connect(function(message)
             {
-
                 var odlaCommand = JSON.parse(message);
                 debug("Message: " + message);
 
@@ -46,6 +45,35 @@ MuseScore
 
                 switch (odlaCommand.type)
                 {
+                    // https://musescore.org/en/node/323910
+                case "barline":
+                    curScore.startCmd();
+                    if(curScore.selection.isRange)
+                    {
+                        var selection = curScore.selection;
+                        var startMeasure = selection.startSegment.parent;
+                        var endMeasure = selection.endSegment.parent;
+                        var counter = 1;
+                        for (var m = startMeasure; m && !m.is(endMeasure); m = m.nextMeasure)
+                        {
+                            var e = m.lastSegment.elementAt(0);
+                            if (e && e.type === Element.BAR_LINE)
+                                e.barlineType = odlaCommand.value;
+                        }
+                    }
+                    else
+                    {
+                        var el = null;
+                        if(odlaCommand.value !== 4) // star repeat is buggy https://musescore.org/it/node/345122
+                            el = cursor.measure.lastSegment.elementAt(0);
+                        else if(cursor.measure.prevMeasure && cursor.measure.prevMeasure.prevMeasure)
+                            el = cursor.measure.prevMeasure.prevMeasure.lastSegment.elementAt(0);
+                        if (el && el.type === Element.BAR_LINE)
+                            el.barlineType = odlaCommand.value;
+                    }
+                    curScore.endCmd();
+                    break;
+
                 case "dynamics":
                     var dyn = newElement(Element.DYNAMIC);
                     dyn.text = odlaCommand.text;
@@ -95,9 +123,9 @@ MuseScore
                     var measure = cursor.measure;
                     while (++counter !== odlaCommand.value && measure.nextMeasure !== null)
                         measure = measure.nextMeasure;
-
                     cursor.rewindToTick(measure.firstSegment.tick);
-                    cursor.inputStateMode=Cursor.INPUT_STATE_SYNC_WITH_SCORE;
+                    cmd("rest");
+                    cmd("undo");
                     break;
 
                 default:
@@ -105,6 +133,9 @@ MuseScore
                     curScore.startCmd()
                     cmd(odlaCommand.type)
                     curScore.endCmd()
+
+                    if(odlaCommand.type.includes("hairpin"))
+                        cmd("note-input");
                 }
 
                 latestSegment = cursor.segment;
@@ -148,6 +179,7 @@ MuseScore
 
         var current_y = curNote.posY;
         var error = Math.round((expected_Y - current_y) * 2);
+        curScore.startCmd()
 
         while(error !== 0)
         {
@@ -178,6 +210,7 @@ MuseScore
         }
         cursor.inputStateMode=Cursor.INPUT_STATE_SYNC_WITH_SCORE;
         cursor.next();
+        curScore.endCmd();
     }
 
     function getNoteName(odlaKey)
