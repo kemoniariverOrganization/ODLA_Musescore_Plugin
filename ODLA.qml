@@ -45,33 +45,59 @@ MuseScore
 
                 switch (odlaCommand.type)
                 {
-                    // https://musescore.org/en/node/323910
+
                 case "barline":
-                    curScore.startCmd();
+                    var type = odlaCommand.value;
                     if(curScore.selection.isRange)
                     {
+                        //for (var i = 0; i < selection.elements.length; i++)
+                        //debug("element: " + selection.elements[i]);
+
                         var selection = curScore.selection;
-                        var startMeasure = selection.startSegment.parent;
-                        var endMeasure = selection.endSegment.parent;
-                        var counter = 1;
-                        for (var m = startMeasure; m && !m.is(endMeasure); m = m.nextMeasure)
+                        var startSegment = selection.startSegment;
+                        var endSegment = selection.endSegment;
+                        curScore.startCmd();
+
+                        if(type === 4 || type === 8)
                         {
-                            var e = m.lastSegment.elementAt(0);
-                            if (e && e.type === Element.BAR_LINE)
-                                e.barlineType = odlaCommand.value;
+                            // start repeat buggy https://musescore.org/it/node/345122
+                            var start_bar = getPrevEl(startSegment, Element.BAR_LINE);
+                            start_bar = getPrevEl(start_bar, Element.BAR_LINE);
+
+                            if(start_bar)
+                                start_bar.barlineType = 4;
+
+                            var end_bar = getNextEl(endSegment, Element.BAR_LINE);
+                            if(end_bar)
+                                end_bar.barlineType = 8;
                         }
+                        else
+                        {
+                            var s = getNextSeg(startSegment, Segment.BarLineType);
+                            debug("segment: " +s);
+                            while (s && !s.parent.is(endSegment.parent))
+                            {
+                                var e = s.elementAt(0);
+                                e.barlineType = type;
+                                s = getNextSeg(s, Segment.BarLineType);
+                            }
+                        }
+                        curScore.endCmd();
                     }
                     else
                     {
-                        var el = null;
-                        if(odlaCommand.value !== 4) // star repeat is buggy https://musescore.org/it/node/345122
-                            el = cursor.measure.lastSegment.elementAt(0);
-                        else if(cursor.measure.prevMeasure && cursor.measure.prevMeasure.prevMeasure)
-                            el = cursor.measure.prevMeasure.prevMeasure.lastSegment.elementAt(0);
-                        if (el && el.type === Element.BAR_LINE)
-                            el.barlineType = odlaCommand.value;
+                        cursor.filter = Segment.BarLineType;
+                        if(type === 4)// start repeat buggy https://musescore.org/it/node/345122
+                        {
+                            cursor.prev();
+                            cursor.prev();
+                        }
+                        else
+                            cursor.next();
+                        curScore.startCmd();
+                        cursor.element.barlineType = type;
+                        curScore.endCmd();
                     }
-                    curScore.endCmd();
                     break;
 
                 case "dynamics":
@@ -143,6 +169,69 @@ MuseScore
         }
     }
 
+    function getNextSeg(obj, type)
+    {
+        var s = getSegment(obj).next;
+        while (s)
+        {
+            debug("trovato: " + s.segmentType + " cercato: " + type);
+            if (s.segmentType & type)
+                return s;
+            s = s.next;
+        }
+        return null;
+    }
+
+    function getPrevSeg(segment, type)
+    {
+        var s = getSegment(obj).prev;
+        while (s)
+        {
+            debug("trovato: " + s.segmentType + " cercato: " + type);
+            if (s.segmentType & type) // segment type is a flag
+                return s;
+            s = s.prev;
+        }
+        return null;
+    }
+
+    function getPrevEl(obj, type)
+    {
+        var s = getSegment(obj).prev;
+        while (s)
+        {
+            var e = s.elementAt(0);
+            if (e && e.type === type)
+                return e;
+            s = s.prev;
+        }
+        return null;
+    }
+
+    function getNextEl(obj, type)
+    {
+        var s = getSegment(obj).next;
+        while (s)
+        {
+            var e = s.elementAt(0);
+            if (e && e.type === type)
+                return e;
+            s = s.next;
+        }
+        return null;
+    }
+
+    function getSegment(obj)
+    {
+        var str = "" + obj.toString();
+        if(str.includes("Segment"))
+            return obj;
+        else if(str.includes("Measure"))
+            return obj.lastSegment;
+        else if(str.includes("EngravingItem") || str.includes("ChorRest"))
+            return obj.parent;
+    }
+
     /*
         I know this is a bad trick, but I didn't find
         a way to know if we are in note-input
@@ -174,9 +263,13 @@ MuseScore
         }
         cmd((chord ? "chord-" : "note-") + getNoteName(odlaKey));
         curScore.endCmd();
-        cursor.prev();
-        var curNote = cursor.element.notes[cursor.element.notes.length - 1];
 
+        if(cursor.element === null)
+            return;
+
+        cursor.prev();
+
+        var curNote = cursor.element.notes[cursor.element.notes.length - 1];
         var current_y = curNote.posY;
         var error = Math.round((expected_Y - current_y) * 2);
         curScore.startCmd()
