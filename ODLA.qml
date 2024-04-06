@@ -74,7 +74,6 @@ MuseScore
                         else
                         {
                             var s = getNextSeg(startSegment, Segment.BarLineType);
-                            debug("segment: " +s);
                             while (s && !s.parent.is(endSegment.parent))
                             {
                                 var e = s.elementAt(0);
@@ -86,22 +85,34 @@ MuseScore
                     }
                     else
                     {
-                        cursor.filter = Segment.BarLineType;
+
+                        var bar = null;
+
                         if(type === 4)// start repeat buggy https://musescore.org/it/node/345122
                         {
-                            cursor.prev();
-                            cursor.prev();
+                            bar = getPrevEl(cursor.segment, Element.BAR_LINE);
+                            bar = getPrevEl(bar, Element.BAR_LINE);
                         }
                         else
-                            cursor.next();
-                        curScore.startCmd();
-                        cursor.element.barlineType = type;
-                        curScore.endCmd();
+                        {
+                            bar = getNextEl(cursor.segment, Element.BAR_LINE);
+                        }
+                        if(bar !== null)
+                        {
+                            curScore.startCmd();
+                            bar.barlineType = type;
+                            var nextBarline = getNextEl(bar, Element.BAR_LINE);
+                            // since start repeat (4) is placed as first segment of next measure
+                            if(nextBarline.barlineType === 4)
+                                nextBarline.barlineType = 1;
+                            curScore.endCmd();
+                        }
                     }
                     break;
 
                 case "dynamics":
                     var dyn = newElement(Element.DYNAMIC);
+                    dyn.subtype = odlaCommand.subtype;
                     dyn.text = odlaCommand.text;
                     curScore.startCmd();
                     cursor.add(dyn);
@@ -137,11 +148,12 @@ MuseScore
                 case "tempo":
                     var tempo = newElement(Element.TEMPO_TEXT);
                     tempo.followText = 1; // va aggiornato ?
-                    tempo.text = odlaCommand.text + odlaCommand.tempo;
-                    tempo.tempo = parseFloat(odlaCommand.tempo);
+                    tempo.text = odlaCommand.text;
+                    tempo.tempo = parseFloat(odlaCommand.tempo / odlaCommand.time_divider);
                     curScore.startCmd();
                     cursor.add(tempo);
                     curScore.endCmd();
+
                     break;
                 case "goto":
                     var counter = 0;
