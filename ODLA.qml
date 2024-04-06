@@ -109,7 +109,20 @@ MuseScore
                         }
                     }
                     break;
+                case "select-measures":
+                    var firstMeasure = getMeasure(odlaCommand.firstMeasure);
+                    var lastMeasure = getMeasure(odlaCommand.lastMeasure);
 
+
+                    var startTick = firstMeasure.firstSegment.tick;
+                    var endTick = lastMeasure.lastSegment.tick;
+
+                    //setCursorToTime(cursor, startTick);
+                    curScore.startCmd();
+                    curScore.selection.selectRange(startTick, endTick+1, 0, curScore.nstaves)
+                    curScore.endCmd();
+
+                    break;
                 case "dynamics":
                     var dyn = newElement(Element.DYNAMIC);
                     dyn.subtype = odlaCommand.subtype;
@@ -158,9 +171,7 @@ MuseScore
                 case "goto":
                     var counter = 0;
                     cursor.rewindToTick(0);
-                    var measure = cursor.measure;
-                    while (++counter !== odlaCommand.value && measure.nextMeasure !== null)
-                        measure = measure.nextMeasure;
+                    var measure = getMeasure(odlaCommand.value);
                     cursor.rewindToTick(measure.firstSegment.tick);
                     cmd("rest");
                     cmd("undo");
@@ -180,6 +191,27 @@ MuseScore
             });
         }
     }
+
+    function getMeasure(number){
+        var measure = curScore.firstMeasure;
+        var counter = 0;
+        while (++counter !== number && measure.nextMeasure !== null)
+            measure = measure.nextMeasure;
+        return measure;
+    }
+
+    function setCursorToTime(cursor, time){
+        cursor.rewind(0);
+        while (cursor.segment) {
+            var current_time = cursor.tick;
+            if(current_time>=time){
+                return true;
+            }
+            cursor.next();
+        }
+        cursor.rewind(0);
+        return false;
+    }// end setcursor To Time
 
     function getNextSeg(obj, type)
     {
