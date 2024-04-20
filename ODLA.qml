@@ -5,17 +5,28 @@ import QtQuick.Controls 2.2
 
 MuseScore
 {
-    version: "3.5"
-    description: qsTr("This plugin allows the use of the ODLA keyboard in the Musescore program")
-    title: "ODLA"
+    version: "3.5";
+    description: qsTr("This plugin allows the use of the ODLA keyboard in the Musescore program");
+    title: "ODLA";
     //categoryCode: "composing-arranging-tools"
-    thumbnailName: "ODLA.png"
-    requiresScore: false
-    property var latestSegment: null
-    property bool noteInput: false
-    property var elementCopied: null
+    thumbnailName: "ODLA.png";
+    requiresScore: false;
+    property var latestSegment: null;
+    property bool noteInput: false;
+    property var elementCopied: null;
     property int noteOffset: 0;
     property bool slur_active: false;
+
+    readonly property int noteName        : 1 << 0;
+    readonly property int durationName    : 1 << 1;
+    readonly property int beatNumber      : 1 << 2;
+    readonly property int measureNumber   : 1 << 3;
+    readonly property int staffNumber     : 1 << 4;
+    readonly property int timeSignFraction: 1 << 5;
+    readonly property int clefName        : 1 << 6;
+    readonly property int keySignName     : 1 << 7;
+    readonly property int voiceNumber     : 1 << 8;
+    readonly property int bpmNumber       : 1 << 9;
 
     onRun:
     {
@@ -39,6 +50,12 @@ MuseScore
 
                 var cursor = curScore.newCursor();
                 cursor.inputStateMode=Cursor.INPUT_STATE_SYNC_WITH_SCORE;
+
+                if ('SpeechFlags' in odlaCommand)
+                {
+                    voiceOver(odlaCommand.SpeechFlags, cursor);
+                    return;
+                }
 
                 if ('note_entry' in odlaCommand)
                     setNoteEntry(odlaCommand.note_entry);
@@ -178,7 +195,6 @@ MuseScore
                     break;
 
                 default:
-                    debug("Shortcut: " + message);
                     curScore.startCmd()
                     cmd(odlaCommand.type)
                     curScore.endCmd()
@@ -189,9 +205,89 @@ MuseScore
 
                 latestSegment = cursor.segment;
             });
+
+            function voiceOver(SpeechFlags, cursor)
+            {
+                var toSay = {};
+
+                toSay.version = "MS4";
+                var lastSelectedElement = getLastSelectedElement();
+                debug(getNotePitch(lastSelectedElement));
+
+                printProperties(lastSelectedElement.durationType);
+
+                debug("line:" + lastSelectedElement.line);
+
+                if (SpeechFlags & noteName)
+                    toSay.NOT = getNotePitch(lastSelectedElement);
+
+                if (SpeechFlags & durationName)
+                    toSay.DUR = lastSelectedElement.durationType;
+
+                /* durationType.type
+                V_LONG, V_BREVE, V_WHOLE, V_HALF, V_QUARTER, V_EIGHTH, V_16TH,
+                V_32ND, V_64TH, V_128TH, V_256TH, V_512TH, V_1024TH,
+                V_ZERO, V_MEASURE,  V_INVALID
+
+                durationType.dots -> numero dei punti di valore
+                */
+
+                if (SpeechFlags & beatNumber)
+                    toSay.BEA = "Battito 1; ";
+
+                if (SpeechFlags & measureNumber)
+                    toSay.MEA = "Battuta 1; ";
+
+                if (SpeechFlags & staffNumber)
+                    toSay.STA = "Pentagramma 1 (Piano); ";
+
+                if (SpeechFlags & timeSignFraction)
+                    toSay.TIM = "4/4; ";
+
+                if (SpeechFlags & clefName)
+                    toSay.CLE = "Chiave di violino; ";
+
+                if (SpeechFlags & keySignName)
+                    toSay.KEY = "Do maggiore, La minore; ";
+
+                if (SpeechFlags & voiceNumber)
+                    toSay.VOI = "Voce 1; ";
+
+                if (SpeechFlags & bpmNumber)
+                    toSay.BPM = "120 beat per minute";
+
+                webSocket.sendTextMessage(JSON.stringify(toSay));
+            }
         }
     }
+    function getCursorNote(cursor)
+    {
+        return cursor.element.notes[cursor.element.notes.length - 1];
+    }
 
+    function getLastSelectedElement()
+    {
+        var nEl = curScore.selection.elements.length;
+        return (nEl===0) ? null : curScore.selection.elements[nEl-1];
+    }
+
+    /*
+     * getNotePitch (Element) -> int
+     * Get note pitch of Element or -1 if it's a pause
+     */
+    function getNotePitch(element){
+        if(element.type === Element.NOTE)
+            return element.pitch;
+        else if(element.type === Element.REST)
+            return -1;
+        else
+            return -2;
+    }
+
+    /*
+     * getMeasure (int) -> Measure
+     * Get measure pointer given measure number
+     */
     function getMeasure(number){
         var measure = curScore.firstMeasure;
         var counter = 0;
@@ -313,7 +409,7 @@ MuseScore
 
         cursor.prev();
 
-        var curNote = cursor.element.notes[cursor.element.notes.length - 1];
+        var curNote = getCursorNote(cursor);
         var current_y = curNote.posY;
         var error = Math.round((expected_Y - current_y) * 2);
         curScore.startCmd()
