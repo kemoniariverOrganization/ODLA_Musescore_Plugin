@@ -159,7 +159,7 @@ MuseScore
                     break;
 
                 case "staff-pressed":
-                    addNoteToScore(cursor, odlaCommand.odlaKey, odlaCommand.chord,odlaCommand.slur);
+                    addNoteToScore(cursor, odlaCommand.odlaKey, odlaCommand.chord, odlaCommand.slur);
                     break;
 
                 case "accidental":
@@ -212,34 +212,36 @@ MuseScore
 
                 toSay.version = "MS4";
                 var lastSelectedElement = getLastSelectedElement();
-                debug(getNotePitch(lastSelectedElement));
 
-                printProperties(lastSelectedElement.durationType);
-
-                debug("line:" + lastSelectedElement.line);
 
                 if (SpeechFlags & noteName)
-                    toSay.NOT = getNotePitch(lastSelectedElement);
+                {
+                    toSay.pitch = getNotePitch(lastSelectedElement);
+                    toSay.tpc = lastSelectedElement.tpc;
+                }
 
                 if (SpeechFlags & durationName)
-                    toSay.DUR = lastSelectedElement.durationType;
-
-                /* durationType.type
-                V_LONG, V_BREVE, V_WHOLE, V_HALF, V_QUARTER, V_EIGHTH, V_16TH,
-                V_32ND, V_64TH, V_128TH, V_256TH, V_512TH, V_1024TH,
-                V_ZERO, V_MEASURE,  V_INVALID
-
-                durationType.dots -> numero dei punti di valore
-                */
+                {
+                    toSay.durationType = lastSelectedElement.durationType.type;
+                    toSay.durationDots = lastSelectedElement.durationType.dots;
+                }
+                var seg = getParentOfType(lastSelectedElement, "Segment");
+                debug("staff: " + seg.staff); // 480 ogni quarto?
+                debug("tempo: " + seg.tempo); // 480 ogni quarto?
+                debug("tick: " + seg.tick); // 480 ogni quarto?
+                debug("division: " + division); // 480 ogni quarto (dimension)
 
                 if (SpeechFlags & beatNumber)
                     toSay.BEA = "Battito 1; ";
 
                 if (SpeechFlags & measureNumber)
-                    toSay.MEA = "Battuta 1; ";
+                    toSay.MEA = getElementMeasureNumber(lastSelectedElement);
+
+                var staffNumber = lastSelectedElement.track;
+                var instrumentName = lastSelectedElement.staff.part.instrumentAtTick(seg.tick).longName;
 
                 if (SpeechFlags & staffNumber)
-                    toSay.STA = "Pentagramma 1 (Piano); ";
+                    toSay.STA = staffNumber + " " + instrumentName;
 
                 if (SpeechFlags & timeSignFraction)
                     toSay.TIM = "4/4; ";
@@ -251,7 +253,7 @@ MuseScore
                     toSay.KEY = "Do maggiore, La minore; ";
 
                 if (SpeechFlags & voiceNumber)
-                    toSay.VOI = "Voce 1; ";
+                    toSay.VOI = lastSelectedElement.voice;
 
                 if (SpeechFlags & bpmNumber)
                     toSay.BPM = "120 beat per minute";
@@ -290,10 +292,33 @@ MuseScore
      */
     function getMeasure(number){
         var measure = curScore.firstMeasure;
-        var counter = 0;
-        while (++counter !== number && measure.nextMeasure !== null)
+        var counter = 1;
+        while (counter++ !== number && measure.nextMeasure !== null)
             measure = measure.nextMeasure;
         return measure;
+    }
+
+    function getElementMeasureNumber(element){
+        var measure = curScore.firstMeasure;
+        var targetMeasure = getParentOfType(element, "Measure");
+        var counter = 1;
+        while (!measure.is(targetMeasure))
+        {
+            ++counter;
+            measure = measure.nextMeasure;
+        }
+        return counter;
+    }
+
+    function getParentOfType(element, name)
+    {
+        while(element)
+        {
+            if(element.name === name)
+                return element;
+            element = element.parent;
+        }
+        return null;
     }
 
     function setCursorToTime(cursor, time){
@@ -311,7 +336,7 @@ MuseScore
 
     function getNextSeg(obj, type)
     {
-        var s = getSegment(obj).next;
+        var s = getParentOfType(obj, "Segment").next;
         while (s)
         {
             debug("trovato: " + s.segmentType + " cercato: " + type);
@@ -324,7 +349,7 @@ MuseScore
 
     function getPrevSeg(segment, type)
     {
-        var s = getSegment(obj).prev;
+        var s = getParentOfType(obj, "Segment").prev;
         while (s)
         {
             debug("trovato: " + s.segmentType + " cercato: " + type);
@@ -337,7 +362,7 @@ MuseScore
 
     function getPrevEl(obj, type)
     {
-        var s = getSegment(obj).prev;
+        var s = getParentOfType(obj, "Segment").prev;
         while (s)
         {
             var e = s.elementAt(0);
@@ -350,7 +375,7 @@ MuseScore
 
     function getNextEl(obj, type)
     {
-        var s = getSegment(obj).next;
+        var s = getParentOfType(obj, "Segment").next;
         while (s)
         {
             var e = s.elementAt(0);
@@ -359,17 +384,6 @@ MuseScore
             s = s.next;
         }
         return null;
-    }
-
-    function getSegment(obj)
-    {
-        var str = "" + obj.toString();
-        if(str.includes("Segment"))
-            return obj;
-        else if(str.includes("Measure"))
-            return obj.lastSegment;
-        else if(str.includes("EngravingItem") || str.includes("ChorRest"))
-            return obj.parent;
     }
 
     /*
