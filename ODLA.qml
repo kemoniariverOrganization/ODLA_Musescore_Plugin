@@ -46,6 +46,8 @@ MuseScore
         {
             debug("Client connected");
 
+            setNoteEntry(true);
+
             webSocket.onTextMessageReceived.connect(function(message)
             {
                 var odlaCommand = JSON.parse(message);
@@ -67,9 +69,6 @@ MuseScore
                     var type = odlaCommand.value;
                     if(curScore.selection.isRange)
                     {
-                        //for (var i = 0; i < selection.elements.length; i++)
-                        //debug("element: " + selection.elements[i]);
-
                         var selection = curScore.selection;
                         var startSegment = selection.startSegment;
                         var endSegment = selection.endSegment;
@@ -159,12 +158,10 @@ MuseScore
                     break;
 
                 case "staff-pressed":
-                    if(isCursorInTablature())
-                    {
-                        addFretToScore(odlaCommand.odlaKey);
-                    }
-                    else
+                    if(!isCursorInTablature())
                         addNoteToScore(odlaCommand.odlaKey, odlaCommand.chord, odlaCommand.slur);
+                    else
+                        selectStringFromOdlaKey(odlaCommand.odlaKey);
                     break;
 
                 case "accidental":
@@ -209,18 +206,54 @@ MuseScore
 
                     break;
 
+                case "note-input":
+                    setNoteEntry(!noteInput);
+                    break;
+
                 default:
-                    cmd(odlaCommand.type)
-                    // A further switch in order to do change plugin state after executing cmd
-                    switch(odlaCommand.type)
-                    {
-                        case "hairpin":
-                            setNoteEntry(true);
-                            break;
-                    }
+                    odlaCommand.type = replaceCommand(odlaCommand.type);
+                    if(odlaCommand.type === "")
+                        return
+                    debug("executing: " + odlaCommand.type);
+                    cmd(odlaCommand.type);
+                    afterCommand(odlaCommand.type);
                 }
             });
 
+            function replaceCommand(command)
+            {
+                switch(command)
+                {
+                case "next-chord":
+                    if(!noteInput)
+                        return "next-element";
+                    break;
+                case "prev-chord":
+                    if(!noteInput)
+                        return "prev-element";
+                    break;
+                case "up-chord":
+                    if(isCursorInTablature())
+                        return stringAbove() ? "" : "prev-track";
+                    break;
+                case "down-chord":
+                    if(isCursorInTablature())
+                        return stringBelow() ? "" : "next-track";
+                    break;
+                default:
+                    return command;
+                }
+                return command;
+            }
+            function afterCommand(command)
+            {
+                switch(command)
+                {
+                case "hairpin":
+                    setNoteEntry(true);
+                    break;
+                }
+            }
             function voiceOver(SpeechFlags)
             {
                 var toSay = {};
@@ -476,7 +509,7 @@ MuseScore
      */
     function setNoteEntry(status)
     {
-        if(status === true && noteInput === false)
+        if(status === true && (noteInput === false || curScore.selection.elements.length === 0))
         {
             cmd("note-input-steptime");
             noteInput = true;
@@ -487,17 +520,60 @@ MuseScore
             cmd("notation-escape");
             noteInput = false;
         }
-    }
-    function addFretToScore(odlaKey)
-    {
-        //TODO
+        debug("cursor selection " + noteInput);
     }
 
+    function getStringNumber()
+    {
+        if(isCursorInTablature())
+            return curScore.staves[cursor.staffIdx].part.instruments[0].stringData.strings.length;
+        else
+            return -1;
+    }
+
+    function selectStringFromOdlaKey(odlaKey)
+    {
+        if(odlaKey < 0)
+            return;
+        var nStrings = getStringNumber();
+
+        if(nStrings === -1)
+            return;
+
+        var string = Math.min(Math.floor(odlaKey / 2), nStrings - 1);
+
+        curScore.startCmd();
+        cursor.stringNumber = string;
+        curScore.endCmd();
+    }
+
+    function stringBelow()
+    {
+        var nStrings = getStringNumber();
+        if(cursor.stringNumber === nStrings - 1)
+            return false;
+        if(cursor.stringNumber)
+            curScore.startCmd();
+        cursor.stringNumber++;
+        curScore.endCmd();
+        return true;
+    }
+
+    function stringAbove()
+    {
+        if(cursor.stringNumber === 0)
+            return false;
+        if(cursor.stringNumber)
+            curScore.startCmd();
+        cursor.stringNumber--;
+        curScore.endCmd();
+        return true;
+    }
 
     function addNoteToScore(odlaKey, chord, slur)
     {
         var expected_Y = odlaKey / 2.0;
-        curScore.startCmd()
+        curScore.startCmd();
         if(slur !== slur_active)
         {
             cmd("add-slur");
@@ -547,35 +623,36 @@ MuseScore
         curScore.endCmd();
     }
 
-//    function lineToNaturalPitch(odlaKey)
-//    {
-//        var ks = cursor.keySignature;
-//        curScore.startCmd();
-//        cursor.addNote(60); // add temporary note to be changed
-//        var n = getNoteBeforeCursor();
-//        n.line = odlaKey;
-//        //this use musescore system to convert previous pitch according to line
-//        if(accidentalActive !== Accidental.NONE)
-//        {
-//            debug("accidental active" + accidentalActive);
-//            n.accidentalType = accidentalActive;
-//        }
-//        else
-//        {
-//            // we have to use a
-//            n.accidentalType = Accidental.NONE; //https://musescore.org/en/node/305667
-//            if((n.tpc + 1) % 7 < ks)
-//                n.accidentalType = Accidental.SHARP;
-//            if ((n.tpc + 1) % 7 > (6 + ks))
-//                n.accidentalType = Accidental.FLAT;
-//            debug("accidental calculated" + n.accidentalType);
+    //    Evaluate this version of note insertion in order to avoid undo problem
+    //    function lineToNaturalPitch(odlaKey)
+    //    {
+    //        var ks = cursor.keySignature;
+    //        curScore.startCmd();
+    //        cursor.addNote(60); // add temporary note to be changed
+    //        var n = getNoteBeforeCursor();
+    //        n.line = odlaKey;
+    //        //this use musescore system to convert previous pitch according to line
+    //        if(accidentalActive !== Accidental.NONE)
+    //        {
+    //            debug("accidental active" + accidentalActive);
+    //            n.accidentalType = accidentalActive;
+    //        }
+    //        else
+    //        {
+    //            // we have to use a
+    //            n.accidentalType = Accidental.NONE; //https://musescore.org/en/node/305667
+    //            if((n.tpc + 1) % 7 < ks)
+    //                n.accidentalType = Accidental.SHARP;
+    //            if ((n.tpc + 1) % 7 > (6 + ks))
+    //                n.accidentalType = Accidental.FLAT;
+    //            debug("accidental calculated" + n.accidentalType);
 
-//        }
-//        curScore.endCmd();
-//        var pitch = n.pitch;
-//        cmd("undo");
-//        return pitch;
-//    }
+    //        }
+    //        curScore.endCmd();
+    //        var pitch = n.pitch;
+    //        cmd("undo");
+    //        return pitch;
+    //    }
 
 
     function odlaKeyToNoteName(odlaKey)
