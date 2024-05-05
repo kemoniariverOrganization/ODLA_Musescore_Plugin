@@ -13,10 +13,13 @@ MuseScore
     requiresScore: false;
     property bool toBeRead: false;
     property var latestNote: null;
+    property var latestChord: null;
     property var cursor: null;
     property bool noteInput: false;
     property int noteOffset: 0;
     property bool slur_active: false;
+    property bool chord_active: false;
+    property var accidentalActive: Accidental.NONE;
 
     readonly property int noteName        : 1 << 0;
     readonly property int durationName    : 1 << 1;
@@ -164,13 +167,6 @@ MuseScore
                         selectStringFromOdlaKey(odlaCommand.odlaKey);
                     break;
 
-                case "accidental":
-                    var sym = newElement(Element.SYMBOL);
-                    sym.symbol = SymId.accidentalDoubleSharp;
-                    sym.offsetX = -1.5;
-                    cursor.add(sym);
-                    break;
-
                 case "insert-measures":
                     curScore.startCmd();
                     curScore.appendMeasures(odlaCommand.value ? odlaCommand.value : 1);
@@ -203,7 +199,6 @@ MuseScore
                             currentMeasureNumber++;
                         }
                     }
-
                     break;
 
                 case "note-input":
@@ -218,6 +213,9 @@ MuseScore
                     cmd(odlaCommand.type);
                     afterCommand(odlaCommand.type);
                 }
+
+                latestChord = getThisOrPrevChord();
+                latestNote = getLastSelectedElement();
             });
 
             function replaceCommand(command)
@@ -252,6 +250,16 @@ MuseScore
                 case "hairpin":
                     setNoteEntry(true);
                     break;
+                case "sharp":
+                case "sharp2":
+                case "flat":
+                case "flat2":
+                case "nat":
+                    cmd("note-g");
+                    accidentalActive = getThisOrPrevChord().notes[0].accidentalType;
+                    cmd("undo");
+                    break;
+
                 }
             }
             function voiceOver(SpeechFlags)
@@ -306,9 +314,14 @@ MuseScore
         }
     }
 
-    function isCursorInTablature() {
-        debug("Tablature? " + curScore.staves[cursor.staffIdx].part.hasTabStaff)
-        return curScore.staves[cursor.staffIdx].part.hasTabStaff;
+    function isCursorInTablature()
+    {
+        try {
+            debug("Tablature? " + curScore.staves[cursor.staffIdx].part.hasTabStaff);
+            return curScore.staves[cursor.staffIdx].part.hasTabStaff;
+        } catch (error) {
+            return false;
+        }
     }
 
     function getLastSelectedElement()
@@ -317,17 +330,17 @@ MuseScore
         return (nEl===0) ? null : curScore.selection.elements[nEl-1];
     }
 
-    function getNoteBeforeCursor(){
+    function getThisOrPrevChord()
+    {
         var seg = cursor.segment;
         while(seg)
         {
-            var el = seg.elementAt(cursor.track);
-            if(el.type !== Element.CHORD)
+            var chord = seg.elementAt(cursor.track);
+            if(chord.type !== Element.CHORD)
                 seg = seg.prev;
-            else
-                return el.notes[el.notes.length-1];
+            else return chord;
         }
-        return seg;
+        return null;
     }
 
 
@@ -338,6 +351,8 @@ MuseScore
     function getNotePitch(element){
         if(element.type === Element.NOTE)
             return element.pitch;
+        if(element.type === Element.CHORD)
+            return element.note[0].pitch;
         else if(element.type === Element.REST)
             return -1;
         else
@@ -386,7 +401,7 @@ MuseScore
         // I cannot find another way to play note
         cmd("prev-chord");
         cmd("next-chord");
-        return;
+
     }
 
     function getElementKeySig(element) {
@@ -553,9 +568,11 @@ MuseScore
         if(cursor.stringNumber === nStrings - 1)
             return false;
         if(cursor.stringNumber)
+        {
             curScore.startCmd();
-        cursor.stringNumber++;
-        curScore.endCmd();
+            cursor.stringNumber++;
+            curScore.endCmd();
+        }
         return true;
     }
 
@@ -564,103 +581,82 @@ MuseScore
         if(cursor.stringNumber === 0)
             return false;
         if(cursor.stringNumber)
+        {
             curScore.startCmd();
-        cursor.stringNumber--;
-        curScore.endCmd();
+            cursor.stringNumber--;
+            curScore.endCmd();
+        }
         return true;
+    }
+    function getNoteFromChord(chord, pitch)
+    {
+        for(var i = chord.notes.length - 1; i >= 0; i--)
+        {
+            var note = chord.notes[i];
+            if(note.pitch === pitch)
+                return note;
+        }
+        return null;
+    }
+
+    function lineToPitch(line)
+    {
+        // Add a temp note (with undoable action)
+        curScore.startCmd();
+        cursor.addNote(1);
+        // get note object
+        var lastChord = getThisOrPrevChord();
+        var note = getNoteFromChord(lastChord, 1);
+
+        // correct note line with odla odla choosen one
+        note.line = line;
+        note.accidentalType = Accidental.NONE; // first time for old note
+        note.accidentalType = Accidental.NONE; // second time for new note
+        var pitch = note.pitch;
+        curScore.endCmd();
+        cmd("undo");
+        return pitch;
     }
 
     function addNoteToScore(odlaKey, chord, slur)
     {
-        var expected_Y = odlaKey / 2.0;
-        curScore.startCmd();
-        if(slur !== slur_active)
+        if(slur !== slur_active) // TODO: risolvere doppia attivazione
         {
             cmd("add-slur");
             slur_active = !slur_active;
         }
-        cmd((chord ? "chord-" : "note-") + odlaKeyToNoteName(odlaKey));
-        curScore.endCmd();
+        if(!chord) // chord deactivation will affect this insertion
+            chord_active = false;
 
-        if(cursor.element === null)
-            return;
+        var pitch = lineToPitch(odlaKey);
+        curScore.startCmd();
 
-        var curNote = getNoteBeforeCursor();
-        var current_y = curNote.posY;
-        var error = Math.round((expected_Y - current_y) * 2);
-        curScore.startCmd()
 
-        while(error !== 0)
+        if(chord_active && latestChord !==null)
         {
-            if(error >= 7)
-            {
-                cmd("pitch-down-octave");
-                error -= 7;
-            }
-            else if(error <= -7)
-            {
-                cmd("pitch-up-octave");
-                error += 7;
-            }
-            else if(error > 0)
-            {
-                cmd("pitch-down-diatonic");
-                error--;
-                noteOffset--;
-                noteOffset %= 7;
-            }
-            else if(error < 0)
-            {
-                cmd("pitch-up-diatonic");
-                error++;
-                noteOffset++;
-                noteOffset %= 7;
-            }
+            let n = newElement(Element.NOTE);
+            latestChord.add(n);
+            n.line = odlaKey;
+            n.accidentalType = accidentalActive;
+            n.accidentalType = accidentalActive;
         }
-        cursor.inputStateMode=Cursor.INPUT_STATE_SYNC_WITH_SCORE;
-        latestNote = curNote;
-        toBeRead = true;
+        else
+        {
+            cursor.addNote(pitch, chord_active);
+            let n = getNoteFromChord(getThisOrPrevChord(), pitch);
+            n.line = odlaKey;
+            n.accidentalType = accidentalActive;
+        }
         curScore.endCmd();
-    }
 
-    //    Evaluate this version of note insertion in order to avoid undo problem
-    //    function lineToNaturalPitch(odlaKey)
-    //    {
-    //        var ks = cursor.keySignature;
-    //        curScore.startCmd();
-    //        cursor.addNote(60); // add temporary note to be changed
-    //        var n = getNoteBeforeCursor();
-    //        n.line = odlaKey;
-    //        //this use musescore system to convert previous pitch according to line
-    //        if(accidentalActive !== Accidental.NONE)
-    //        {
-    //            debug("accidental active" + accidentalActive);
-    //            n.accidentalType = accidentalActive;
-    //        }
-    //        else
-    //        {
-    //            // we have to use a
-    //            n.accidentalType = Accidental.NONE; //https://musescore.org/en/node/305667
-    //            if((n.tpc + 1) % 7 < ks)
-    //                n.accidentalType = Accidental.SHARP;
-    //            if ((n.tpc + 1) % 7 > (6 + ks))
-    //                n.accidentalType = Accidental.FLAT;
-    //            debug("accidental calculated" + n.accidentalType);
+        playCursor();
 
-    //        }
-    //        curScore.endCmd();
-    //        var pitch = n.pitch;
-    //        cmd("undo");
-    //        return pitch;
-    //    }
+        if(chord) // chord activation will affect next insertion
+            chord_active = true;
 
 
-    function odlaKeyToNoteName(odlaKey)
-    {
-        var note = (13 - odlaKey + noteOffset) % 7;
-        while(note < 0)
-            note +=7;
-        return ["g","a","b","c","d","e","f"][note % 7];
+        debug("current accidental: " + accidentalActive);
+        toBeRead = true;
     }
 
     function printProperties(item)
