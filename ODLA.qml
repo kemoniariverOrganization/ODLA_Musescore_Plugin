@@ -12,7 +12,7 @@ MuseScore
     thumbnailName: "ODLA.png";
     requiresScore: false;
     property bool toBeRead: false;
-    property var latestNote: null;
+    property var latestElement: null;
     property var latestChord: null;
     property var cursor: null;
     property bool noteInput: false;
@@ -215,7 +215,6 @@ MuseScore
                 }
 
                 latestChord = getThisOrPrevChord();
-                latestNote = getLastSelectedElement();
             });
 
             function replaceCommand(command)
@@ -268,45 +267,60 @@ MuseScore
 
                 toSay.version = "MS4";
 
-                if(!toBeRead)
-                    latestNote = cursor.element;
-
-                if (SpeechFlags & noteName)
+                if(curScore.selection.isRange)
                 {
-                    toSay.pitch = getNotePitch(latestNote);
-                    toSay.tpc = latestNote.tpc;
-                }
+                    var startElement = curScore.selection.startSegment.elementAt(0);
+                    var endElement = curScore.selection.endSegment.elementAt(0);
 
-                if (SpeechFlags & durationName)
+                    toSay.RANGE = true;
+                    toSay.beatStart = getElementBeat(startElement);
+                    toSay.measureStart = getElementMeasureNumber(startElement);
+                    toSay.staffStart = getElementStaff(startElement);
+                    toSay.beatEnd= getElementBeat(endElement);
+                    toSay.measureEnd = getElementMeasureNumber(endElement);
+                    toSay.staffEnd = getElementStaff(endElement);
+                }
+                else
                 {
-                    toSay.durationType = latestNote.durationType.type;
-                    toSay.durationDots = latestNote.durationType.dots;
+                    if(!toBeRead)
+                        latestElement = getLastSelectedElement();
+
+                    if (SpeechFlags & noteName)
+                    {
+                        toSay.pitch = getNotePitch(latestElement);
+                        toSay.tpc = latestElement.tpc;
+                    }
+
+                    if (SpeechFlags & durationName)
+                    {
+                        toSay.durationType = latestElement.durationType.type;
+                        toSay.durationDots = latestElement.durationType.dots;
+                    }
+
+                    if (SpeechFlags & beatNumber)
+                        toSay.BEA = getElementBeat(latestElement);
+
+                    if (SpeechFlags & measureNumber)
+                        toSay.MEA = getElementMeasureNumber(latestElement);
+
+                    if (SpeechFlags & staffNumber)
+                        toSay.STA = getElementStaff(latestElement);
+
+                    if (SpeechFlags & timeSignFraction)
+                        toSay.TIM = latestElement.timesigActual.numerator + "/" + latestElement.timesigActual.denominator;
+
+                    if (SpeechFlags & clefName)
+                        toSay.CLE = getElementClef(latestElement);
+
+                    if (SpeechFlags & keySignName)
+                        toSay.KEY = getElementKeySig(latestElement);
+
+                    if (SpeechFlags & voiceNumber)
+                        toSay.VOI = latestElement.voice + 1;
+
+                    if (SpeechFlags & bpmNumber)
+                        toSay.BPM = getElementBPM(latestElement);
                 }
-
-                if (SpeechFlags & beatNumber)
-                    toSay.BEA = getElementBeat(latestNote);
-
-                if (SpeechFlags & measureNumber)
-                    toSay.MEA = getElementMeasureNumber(latestNote);
-
-                if (SpeechFlags & staffNumber)
-                    toSay.STA = getElementStaff(latestNote);
-
-                if (SpeechFlags & timeSignFraction)
-                    toSay.TIM = latestNote.timesigActual.numerator + "/" + latestNote.timesigActual.denominator;
-
-                if (SpeechFlags & clefName)
-                    toSay.CLE = getElementClef(latestNote);
-
-                if (SpeechFlags & keySignName)
-                    toSay.KEY = getElementKeySig(latestNote);
-
-                if (SpeechFlags & voiceNumber)
-                    toSay.VOI = latestNote.voice + 1;
-
-                if (SpeechFlags & bpmNumber)
-                    toSay.BPM = getElementBPM(latestNote);
-
                 debug(JSON.stringify(toSay));
                 webSocket.sendTextMessage(JSON.stringify(toSay));
                 toBeRead = false;
@@ -352,7 +366,7 @@ MuseScore
         if(element.type === Element.NOTE)
             return element.pitch;
         if(element.type === Element.CHORD)
-            return element.note[0].pitch;
+            return element.notes[0].pitch;
         else if(element.type === Element.REST)
             return -1;
         else
@@ -362,8 +376,8 @@ MuseScore
     function getElementStaff(element) {
         var seg = getParentOfType(element, "Segment");
         var staffNumber = element.track;
-        var instrumentName = element.staff.part.instrumentAtTick(seg.tick).longName;
-        return (staffNumber+1) + " " + instrumentName;
+        //var instrumentName = element.staff.part.instrumentAtTick(seg.tick).longName;
+        return (staffNumber+1);
     }
 
     function getElementBeat(element) {
@@ -620,21 +634,21 @@ MuseScore
 
     function addNoteToScore(odlaKey, chord, slur)
     {
-        if(slur !== slur_active) // TODO: risolvere doppia attivazione
-        {
-            cmd("add-slur");
-            slur_active = !slur_active;
-        }
+//        if(slur !== slur_active) // TODO: risolvere doppia attivazione
+//        {
+//            cmd("add-slur");
+//            slur_active = !slur_active;
+//        }
         if(!chord) // chord deactivation will affect this insertion
             chord_active = false;
 
         var pitch = lineToPitch(odlaKey);
         curScore.startCmd();
 
-
+        let n = null;
         if(chord_active && latestChord !==null)
         {
-            let n = newElement(Element.NOTE);
+            n = newElement(Element.NOTE);
             latestChord.add(n);
             n.line = odlaKey;
             n.accidentalType = accidentalActive;
@@ -643,19 +657,15 @@ MuseScore
         else
         {
             cursor.addNote(pitch, chord_active);
-            let n = getNoteFromChord(getThisOrPrevChord(), pitch);
+            n = getNoteFromChord(getThisOrPrevChord(), pitch);
             n.line = odlaKey;
             n.accidentalType = accidentalActive;
         }
         curScore.endCmd();
-
         playCursor();
-
         if(chord) // chord activation will affect next insertion
             chord_active = true;
-
-
-        debug("current accidental: " + accidentalActive);
+        latestElement = n;
         toBeRead = true;
     }
 
