@@ -579,27 +579,30 @@ MuseScore
     function stringBelow()
     {
         var nStrings = getStringNumber();
-        if(cursor.stringNumber === nStrings - 1)
-            return false;
-        if(cursor.stringNumber)
+
+        if(cursor.stringNumber >= nStrings - 1)
         {
-            curScore.startCmd();
-            cursor.stringNumber++;
-            curScore.endCmd();
+            cursor.stringNumber = nStrings - 1;
+            return false;
         }
+
+        curScore.startCmd();
+        cursor.stringNumber ++;
+        curScore.endCmd();
         return true;
     }
 
     function stringAbove()
     {
-        if(cursor.stringNumber === 0)
-            return false;
-        if(cursor.stringNumber)
+        if(cursor.stringNumber <= 0)
         {
-            curScore.startCmd();
-            cursor.stringNumber--;
-            curScore.endCmd();
+            cursor.stringNumber = 0;
+            return false;
         }
+
+        curScore.startCmd();
+        cursor.stringNumber--;
+        curScore.endCmd();
         return true;
     }
     function getNoteFromChord(chord, pitch)
