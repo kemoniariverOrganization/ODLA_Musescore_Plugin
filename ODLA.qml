@@ -31,6 +31,7 @@ MuseScore
     readonly property int keySignName     : 1 << 7;
     readonly property int voiceNumber     : 1 << 8;
     readonly property int bpmNumber       : 1 << 9;
+    readonly property int other       : 1 << 9;
 
     onRun:
     {
@@ -50,7 +51,7 @@ MuseScore
             debug("Client connected");
             setNoteEntry(true);
 
-            webSocket.onTextMessageReceived.connect(function(command)
+            function parseCommand(command)
             {
                 debug("Received command: " + command);
                 var odlaCommand = JSON.parse(command);
@@ -135,7 +136,6 @@ MuseScore
                     var startTick = firstMeasure.firstSegment.tick;
                     var endTick = lastMeasure.lastSegment.tick;
 
-                    //setCursorToTime(cursor, startTick);
                     curScore.startCmd();
                     curScore.selection.selectRange(startTick, endTick+1, 0, curScore.nstaves)
                     curScore.endCmd();
@@ -214,7 +214,7 @@ MuseScore
                 }
 
                 latestChord = getThisOrPrevChord();
-            });
+            }
 
             function replaceCommand(command)
             {
@@ -254,21 +254,35 @@ MuseScore
                 case "flat2":
                 case "nat":
                     cmd("note-g");
+                    cursor.prev();
                     accidentalActive = getThisOrPrevChord().notes[0].accidentalType;
+                    cursor.next();
                     cmd("undo");
                     break;
 
                 }
             }
-            function voiceOver(SpeechFlags)
+
+            function voiceOver(SpeechFlags, extra = "")
             {
                 var toSay = {};
 
                 toSay.version = "MS4";
+                if(!toBeRead)
+                    latestElement = getLastSelectedElement();
 
-                if(curScore.selection.isRange)
+                var seg = getParentOfType(latestElement, "Segment");
+
+                if(seg.segmentType & Segment.BarLineType)
                 {
-                    // don't care the track for beat and measure
+                    toSay.other = "BARLINE";
+                }
+                else if(SpeechFlags === other)
+                {
+                    toSay.other = extra;
+                }
+                else if(curScore.selection.isRange)
+                {
                     var nEl = curScore.selection.elements.length;
                     var startElement = curScore.selection.elements[0];
                     var endElement = curScore.selection.elements[nEl-1];
@@ -283,9 +297,6 @@ MuseScore
                 }
                 else
                 {
-                    if(!toBeRead)
-                        latestElement = getLastSelectedElement();
-
                     if (SpeechFlags & noteName)
                     {
                         toSay.pitch = getNotePitch(latestElement);
@@ -326,6 +337,25 @@ MuseScore
                 webSocket.sendTextMessage(JSON.stringify(toSay));
                 toBeRead = false;
             }
+
+            // Bad way (wait for better API) to ensure note input
+            function setNoteEntry(status)
+            {
+                if(status === true && (noteInput === false || curScore.selection.elements.length === 0))
+                {
+                    cmd("note-input-steptime");
+                    voiceOver(other, "INPUT_ON"); // TODO: inviare solo a comando ricevuto
+                    noteInput = true;
+                }
+                else if(status === false && noteInput === true)
+                {
+                    //cmd("toggle-insert-mode");
+                    voiceOver(other, "INPUT_OFF");
+                    cmd("notation-escape");
+                    noteInput = false;
+                }
+            }
+            webSocket.onTextMessageReceived.connect(parseCommand);
         }
     }
 
@@ -411,21 +441,24 @@ MuseScore
         return retVal;
     }
 
-    function playCursor()
+    // Can't find another way to play note
+    function playNote(n)
     {
-        // I cannot find another way to play note
-        cmd("prev-chord");
+        cursor.rewindToTick(getParentOfType(n,"Segment").tick);
         cmd("next-chord");
-
+        cmd("prev-chord");
+        cursor.next();
     }
 
-    function getElementKeySig(element) {
+    function getElementKeySig(element)
+    {
         var seg = getParentOfType(element, "Segment");
         cursor.rewindToTick(seg.tick);
         return cursor.keySignature;
     }
 
-    function getElementBPM(element) {
+    function getElementBPM(element)
+    {
         var seg = getParentOfType(element, "Segment");
         var timeSigDen = element.timesigActual.denominator;
         cursor.rewindToTick(seg.tick);
@@ -436,7 +469,8 @@ MuseScore
      * getMeasure (int) -> Measure
      * Get measure pointer given measure number
      */
-    function getMeasure(number){
+    function getMeasure(number)
+    {
         var measure = curScore.firstMeasure;
         var counter = 1;
         while (counter++ !== number && measure.nextMeasure !== null)
@@ -444,7 +478,8 @@ MuseScore
         return measure;
     }
 
-    function getElementMeasureNumber(element){
+    function getElementMeasureNumber(element)
+    {
         var measure = curScore.firstMeasure;
         var targetMeasure = getParentOfType(element, "Measure");
         var counter = 1;
@@ -466,19 +501,6 @@ MuseScore
         }
         return null;
     }
-
-    function setCursorToTime(cursor, time){
-        cursor.rewind(0);
-        while (cursor.segment) {
-            var current_time = cursor.tick;
-            if(current_time>=time){
-                return true;
-            }
-            cursor.next();
-        }
-        cursor.rewind(0);
-        return false;
-    }// end setcursor To Time
 
     function getNextSeg(obj, type)
     {
@@ -528,26 +550,6 @@ MuseScore
             s = s.next;
         }
         return null;
-    }
-
-    /*
-        I know this is a bad trick, but I didn't find
-        a way to know if we are in note-input
-        or other state
-     */
-    function setNoteEntry(status)
-    {
-        if(status === true && (noteInput === false || curScore.selection.elements.length === 0))
-        {
-            cmd("note-input-steptime");
-            noteInput = true;
-        }
-        else if(status === false && noteInput === true)
-        {
-            //cmd("toggle-insert-mode");
-            cmd("notation-escape");
-            noteInput = false;
-        }
     }
 
     function getStringNumber()
@@ -609,7 +611,7 @@ MuseScore
         {
             for(let i = chord.notes.length - 1; i >= 0; i--)
                 if(chord.notes[i].pitch === pitch)
-                    return note;
+                    return chord.notes[i];
             chord = getPrevEl(chord, Element.CHORD);
         }
         return null;
@@ -634,8 +636,9 @@ MuseScore
         // Second time will correct also tpc
         n.accidentalType = accidentalActive;
         curScore.endCmd();
+
         // The only way to play just inserted note
-        playCursor();
+        playNote(n);
 
         // If we are creating a chord will leave cursor to the same note
         if(chord)
