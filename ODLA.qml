@@ -269,8 +269,9 @@ MuseScore
                 if(curScore.selection.isRange)
                 {
                     // don't care the track for beat and measure
-                    var startElement = curScore.selection.startSegment.elementAt(0);
-                    var endElement = curScore.selection.endSegment.elementAt(0);
+                    var nEl = curScore.selection.elements.length;
+                    var startElement = curScore.selection.elements[0];
+                    var endElement = curScore.selection.elements[nEl-1];
 
                     toSay.RANGE = true;
                     toSay.beatStart = getElementBeat(startElement);
@@ -380,6 +381,7 @@ MuseScore
     }
 
     function getElementBeat(element) {
+
         var timeSigNum = element.timesigActual.numerator;
         var timeSigDen = element.timesigActual.denominator;
         var absoluteTick = getParentOfType(element, "Segment").tick;
