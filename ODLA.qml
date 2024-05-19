@@ -48,13 +48,12 @@ MuseScore
         onClientConnected: function(webSocket)
         {
             debug("Client connected");
-
             setNoteEntry(true);
 
-            webSocket.onTextMessageReceived.connect(function(message)
+            webSocket.onTextMessageReceived.connect(function(command)
             {
-                var odlaCommand = JSON.parse(message);
-                debug("Message: " + message);
+                debug("Received command: " + command);
+                var odlaCommand = JSON.parse(command);
 
                 if ('SpeechFlags' in odlaCommand)
                 {
@@ -269,19 +268,17 @@ MuseScore
 
                 if(curScore.selection.isRange)
                 {
-                    var startElement = curScore.selection.startSegment.elementAt(cursor.track);
-                    var endElement = curScore.selection.endSegment.elementAt(cursor.track);
-                    debug("curScore.selection.startSegment.name: " + curScore.selection.startSegment.name);
-                    debug("curScore.selection.endSegment.name: " + curScore.selection.endSegment.name);
-
+                    // don't care the track for beat and measure
+                    var startElement = curScore.selection.startSegment.elementAt(0);
+                    var endElement = curScore.selection.endSegment.elementAt(0);
 
                     toSay.RANGE = true;
                     toSay.beatStart = getElementBeat(startElement);
                     toSay.measureStart = getElementMeasureNumber(startElement);
-                    toSay.staffStart = getElementStaff(startElement);
+                    toSay.staffStart = curScore.selection.startStaff + 1; // a bug?
                     toSay.beatEnd= getElementBeat(endElement);
                     toSay.measureEnd = getElementMeasureNumber(endElement);
-                    toSay.staffEnd = getElementStaff(endElement);
+                    toSay.staffEnd = curScore.selection.endStaff;
                 }
                 else
                 {
@@ -376,10 +373,10 @@ MuseScore
     }
 
     function getElementStaff(element) {
-        var seg = getParentOfType(element, "Segment");
-        var staffNumber = element.track;
-        //var instrumentName = element.staff.part.instrumentAtTick(seg.tick).longName;
-        return (staffNumber+1);
+        for(let i = 0; i < curScore.nstaves; i++)
+            if(element.staff.is(curScore.staves[i]))
+                return i+1;
+        return 0;
     }
 
     function getElementBeat(element) {
@@ -461,7 +458,6 @@ MuseScore
     {
         while(element)
         {
-            debug("scanning element of type: " + element.name);
             if(element.name === name)
                 return element;
             element = element.parent;
@@ -487,7 +483,6 @@ MuseScore
         var s = getParentOfType(obj, "Segment").next;
         while (s)
         {
-            debug("trovato: " + s.segmentType + " cercato: " + type);
             if (s.segmentType & type)
                 return s;
             s = s.next;
@@ -500,7 +495,6 @@ MuseScore
         var s = getParentOfType(obj, "Segment").prev;
         while (s)
         {
-            debug("trovato: " + s.segmentType + " cercato: " + type);
             if (s.segmentType & type) // segment type is a flag
                 return s;
             s = s.prev;
@@ -552,7 +546,6 @@ MuseScore
             cmd("notation-escape");
             noteInput = false;
         }
-        debug("cursor selection " + noteInput);
     }
 
     function getStringNumber()
@@ -613,14 +606,8 @@ MuseScore
         while(chord !== null)
         {
             for(let i = chord.notes.length - 1; i >= 0; i--)
-            {
-                let note = chord.notes[i];
-                if(note.pitch === pitch)
-                {
-                    debug("Nota trovata!");
+                if(chord.notes[i].pitch === pitch)
                     return note;
-                }
-            }
             chord = getPrevEl(chord, Element.CHORD);
         }
         return null;
