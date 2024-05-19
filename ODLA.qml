@@ -17,9 +17,9 @@ MuseScore
     property var cursor: null;
     property bool noteInput: false;
     property int noteOffset: 0;
-    property bool slur_active: false;
     property bool chord_active: false;
     property var accidentalActive: Accidental.NONE;
+    readonly property int dummyPitch: 127;
 
     readonly property int noteName        : 1 << 0;
     readonly property int durationName    : 1 << 1;
@@ -95,7 +95,7 @@ MuseScore
                             var s = getNextSeg(startSegment, Segment.BarLineType);
                             while (s && !s.parent.is(endSegment.parent))
                             {
-                                var e = s.elementAt(0);
+                                var e = s.elementAt(cursor.track);
                                 e.barlineType = type;
                                 s = getNextSeg(s, Segment.BarLineType);
                             }
@@ -162,7 +162,7 @@ MuseScore
 
                 case "staff-pressed":
                     if(!isCursorInTablature())
-                        addNoteToScore(odlaCommand.odlaKey, odlaCommand.chord, odlaCommand.slur);
+                        addNoteToScore(odlaCommand.odlaKey, odlaCommand.chord);
                     else
                         selectStringFromOdlaKey(odlaCommand.odlaKey);
                     break;
@@ -269,8 +269,11 @@ MuseScore
 
                 if(curScore.selection.isRange)
                 {
-                    var startElement = curScore.selection.startSegment.elementAt(0);
-                    var endElement = curScore.selection.endSegment.elementAt(0);
+                    var startElement = curScore.selection.startSegment.elementAt(cursor.track);
+                    var endElement = curScore.selection.endSegment.elementAt(cursor.track);
+                    debug("curScore.selection.startSegment.name: " + curScore.selection.startSegment.name);
+                    debug("curScore.selection.endSegment.name: " + curScore.selection.endSegment.name);
+
 
                     toSay.RANGE = true;
                     toSay.beatStart = getElementBeat(startElement);
@@ -331,7 +334,6 @@ MuseScore
     function isCursorInTablature()
     {
         try {
-            debug("Tablature? " + curScore.staves[cursor.staffIdx].part.hasTabStaff);
             return curScore.staves[cursor.staffIdx].part.hasTabStaff;
         } catch (error) {
             return false;
@@ -459,6 +461,7 @@ MuseScore
     {
         while(element)
         {
+            debug("scanning element of type: " + element.name);
             if(element.name === name)
                 return element;
             element = element.parent;
@@ -510,7 +513,7 @@ MuseScore
         var s = getParentOfType(obj, "Segment").prev;
         while (s)
         {
-            var e = s.elementAt(0);
+            var e = s.elementAt(cursor.track);
             if (e && e.type === type)
                 return e;
             s = s.prev;
@@ -523,7 +526,7 @@ MuseScore
         var s = getParentOfType(obj, "Segment").next;
         while (s)
         {
-            var e = s.elementAt(0);
+            var e = s.elementAt(cursor.track);
             if (e && e.type === type)
                 return e;
             s = s.next;
@@ -605,69 +608,50 @@ MuseScore
         curScore.endCmd();
         return true;
     }
-    function getNoteFromChord(chord, pitch)
+    function findNoteBeforeChord(chord, pitch)
     {
-        for(var i = chord.notes.length - 1; i >= 0; i--)
+        while(chord !== null)
         {
-            var note = chord.notes[i];
-            if(note.pitch === pitch)
-                return note;
+            for(let i = chord.notes.length - 1; i >= 0; i--)
+            {
+                let note = chord.notes[i];
+                if(note.pitch === pitch)
+                {
+                    debug("Nota trovata!");
+                    return note;
+                }
+            }
+            chord = getPrevEl(chord, Element.CHORD);
         }
         return null;
     }
 
-    function lineToPitch(line)
+    function addNoteToScore(odlaKey, chord)
     {
-        // Add a temp note (with undoable action)
         curScore.startCmd();
-        cursor.addNote(1);
-        // get note object
-        var lastChord = getThisOrPrevChord();
-        var note = getNoteFromChord(lastChord, 1);
-
-        // correct note line with odla odla choosen one
-        note.line = line;
-        note.accidentalType = Accidental.NONE; // first time for old note
-        note.accidentalType = Accidental.NONE; // second time for new note
-        var pitch = note.pitch;
+        // Add a dummy note with impossibile pitch
+        cursor.addNote(dummyPitch, chord);
+        // Find it by its pitch
+        let n = findNoteBeforeChord(getThisOrPrevChord(), dummyPitch);
+        // if not found we are adding a note to an non-existing chord
+        if(n === null) // so we create chord from scratch
+            cursor.addNote(dummyPitch, false);
+        // now we are sure to have our dummy note
+        n = findNoteBeforeChord(getThisOrPrevChord(), dummyPitch);
+        // Correct the line according to odla command
+        n.line = odlaKey;
+        // Correct accidental but first time will only correct the pitch
+        n.accidentalType = accidentalActive;
+        // Second time will correct also tpc
+        n.accidentalType = accidentalActive;
         curScore.endCmd();
-        cmd("undo");
-        return pitch;
-    }
-
-    function addNoteToScore(odlaKey, chord, slur)
-    {
-//        if(slur !== slur_active) // TODO: risolvere doppia attivazione
-//        {
-//            cmd("add-slur");
-//            slur_active = !slur_active;
-//        }
-        if(!chord) // chord deactivation will affect this insertion
-            chord_active = false;
-
-        var pitch = lineToPitch(odlaKey);
-        curScore.startCmd();
-
-        let n = null;
-        if(chord_active && latestChord !==null)
-        {
-            n = newElement(Element.NOTE);
-            latestChord.add(n);
-            n.line = odlaKey;
-            n.accidentalType = accidentalActive;
-            n.accidentalType = accidentalActive;
-        }
-        else
-        {
-            cursor.addNote(pitch, chord_active);
-            n = getNoteFromChord(getThisOrPrevChord(), pitch);
-            n.line = odlaKey;
-            n.accidentalType = accidentalActive;
-        }
-        curScore.endCmd();
+        // The only way to play just inserted note
         playCursor();
-        if(chord) // chord activation will affect next insertion
-            chord_active = true;
+
+        // If we are creating a chord will leave cursor to the same note
+        if(chord)
+            cursor.rewindToTick(getParentOfType(n,"Segment").tick);
+
         latestElement = n;
         toBeRead = true;
     }
