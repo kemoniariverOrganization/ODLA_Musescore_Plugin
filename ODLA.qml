@@ -18,7 +18,6 @@ MuseScore
     property bool noteInput: false;
     property int noteOffset: 0;
     property bool chord_active: false;
-    property var accidentalActive: Accidental.NONE;
     readonly property int dummyPitch: 127;
 
     readonly property int noteName        : 1 << 0;
@@ -36,8 +35,6 @@ MuseScore
     onRun:
     {
         debug("ODLA Plugin is running");
-        cursor = curScore.newCursor();
-        cursor.inputStateMode=Cursor.INPUT_STATE_SYNC_WITH_SCORE;
     }
 
     WebSocketServer
@@ -49,6 +46,13 @@ MuseScore
         onClientConnected: function(webSocket)
         {
             debug("Client connected");
+
+            cursor = curScore.newCursor();
+            if(cursor === null)
+            {
+                debug("Can't create cursor ...")
+                return;
+            }
             setNoteEntry(true);
 
             function parseCommand(command)
@@ -222,11 +226,17 @@ MuseScore
                 {
                 case "next-chord":
                     if(!noteInput)
-                        return "next-element";
+                        if(curScore.selection.isRange)
+                            setNoteEntry(true);
+                        else
+                            return "next-element";
                     break;
                 case "prev-chord":
                     if(!noteInput)
-                        return "prev-element";
+                        if(curScore.selection.isRange)
+                            setNoteEntry(true);
+                        else
+                            return "prev-element";
                     break;
                 case "up-chord":
                     if(isCursorInTablature())
@@ -248,18 +258,6 @@ MuseScore
                 case "hairpin":
                     setNoteEntry(true);
                     break;
-                case "sharp":
-                case "sharp2":
-                case "flat":
-                case "flat2":
-                case "nat":
-                    cmd("note-g");
-                    cursor.prev();
-                    accidentalActive = getThisOrPrevChord().notes[0].accidentalType;
-                    cursor.next();
-                    cmd("undo");
-                    break;
-
                 }
             }
 
@@ -610,7 +608,7 @@ MuseScore
         while(chord !== null)
         {
             for(let i = chord.notes.length - 1; i >= 0; i--)
-                if(chord.notes[i].pitch === pitch)
+                if(chord.notes[i].pitch === pitch || pitch === null)
                     return chord.notes[i];
             chord = getPrevEl(chord, Element.CHORD);
         }
@@ -632,9 +630,9 @@ MuseScore
         // Correct the line according to odla command
         n.line = odlaKey;
         // Correct accidental but first time will only correct the pitch
-        n.accidentalType = accidentalActive;
+        n.accidentalType = Accidental.NONE;
         // Second time will correct also tpc
-        n.accidentalType = accidentalActive;
+        n.accidentalType = Accidental.NONE;
         curScore.endCmd();
 
         // The only way to play just inserted note
