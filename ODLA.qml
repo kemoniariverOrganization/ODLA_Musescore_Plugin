@@ -53,6 +53,7 @@ MuseScore
                 debug("Can't create cursor ...")
                 return;
             }
+            cursor.inputStateMode=Cursor.INPUT_STATE_SYNC_WITH_SCORE;
             setNoteEntry(true);
 
             function parseCommand(command)
