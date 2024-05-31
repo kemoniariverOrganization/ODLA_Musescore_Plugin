@@ -441,12 +441,13 @@ MuseScore
     }
 
     // Can't find another way to play note
-    function playNote(n)
+    function playNote(tick)
     {
-        cursor.rewindToTick(getParentOfType(n,"Segment").tick);
+        let nextTick = cursor.tick;
+        cursor.rewindToTick(tick);
         cmd("next-chord");
         cmd("prev-chord");
-        cursor.next();
+        cursor.rewindToTick(nextTick);
     }
 
     function getElementKeySig(element)
@@ -604,46 +605,78 @@ MuseScore
         curScore.endCmd();
         return true;
     }
-    function findNoteBeforeChord(chord, pitch)
+    function getInsertedNote(tick, pitchesList)
     {
-        while(chord !== null)
+        cursor.rewindToTick(tick);
+        let notesList = cursor.element.notes;
+        if(notesList === 'undefined' || notesList.length === 0)
+            return null;
+        if(notesList.length === 1)
+            return notesList[0];
+
+        let found = false;
+        for(let i = 0; i < notesList.length; i++)
         {
-            for(let i = chord.notes.length - 1; i >= 0; i--)
-                if(chord.notes[i].pitch === pitch || pitch === null)
-                    return chord.notes[i];
-            chord = getPrevEl(chord, Element.CHORD);
+            debug("noteList[" + i + "] = " + notesList[i].pitch);
+            if(!pitchesList.includes(notesList[i].pitch))
+                return notesList[i];
         }
         return null;
     }
 
+    function pitchesList(tick)
+    {
+        cursor.rewindToTick(tick);
+        let el = cursor.element;
+
+        let retVal = [];
+
+        if(el.type === Element.CHORD)
+            for(let i = 0; i < el.notes.length; i++)
+                retVal[i] = el.notes[i].pitch;
+        return retVal;
+    }
+
+
     function addNoteToScore(odlaKey, chord)
     {
+        // save pitches list at cursor before note insertion
+        let tickBefore = cursor.tick;
+        let pitchesBefore = pitchesList(tickBefore);
+
         curScore.startCmd();
-        // Add a dummy note with impossibile pitch
-        cursor.addNote(dummyPitch, chord);
-        // Find it by its pitch
-        let n = findNoteBeforeChord(getThisOrPrevChord(), dummyPitch);
-        // if not found we are adding a note to an non-existing chord
-        if(n === null) // so we create chord from scratch
-            cursor.addNote(dummyPitch, false);
-        // now we are sure to have our dummy note
-        n = findNoteBeforeChord(getThisOrPrevChord(), dummyPitch);
-        // Correct the line according to odla command
-        n.line = odlaKey;
-        // Correct accidental but first time will only correct the pitch
-        n.accidentalType = Accidental.NONE;
-        // Second time will correct also tpc
-        n.accidentalType = Accidental.NONE;
+
+        // Add a dummy note
+        cmd(chord && cursor.element.type === Element.CHORD? "chord-g" : "note-g")
+
+        // store cursor position
+        let tickAfter= cursor.tick;
+
+        // move cursor to the beginning of insertion (case multiple notes tied)
+        cursor.rewindToTick(tickBefore);
+
+        // correct the pitch for each notes
+        while(cursor.tick < tickAfter)
+        {
+            let n = getInsertedNote(cursor.tick, pitchesBefore);
+            // if not found we are adding a note to an non-existing chord
+            n.line = odlaKey;
+            // Correct accidental but first time will only correct the pitch
+            n.accidentalType = Accidental.NONE;
+            // Second time will correct also tpc
+            n.accidentalType = Accidental.NONE;
+            cursor.next();
+            latestElement = n;
+        }
         curScore.endCmd();
 
         // The only way to play just inserted note
-        playNote(n);
+        playNote(tickAfter);
 
         // If we are creating a chord will leave cursor to the same note
         if(chord)
-            cursor.rewindToTick(getParentOfType(n,"Segment").tick);
+            cursor.prev();
 
-        latestElement = n;
         toBeRead = true;
     }
 
