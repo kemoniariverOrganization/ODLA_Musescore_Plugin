@@ -54,6 +54,7 @@ MuseScore
                 return;
             }
             cursor.inputStateMode=Cursor.INPUT_STATE_SYNC_WITH_SCORE;
+
             setNoteEntry(true);
 
             function parseCommand(command)
@@ -242,10 +243,14 @@ MuseScore
                 case "up-chord":
                     if(isCursorInTablature())
                         return stringAbove() ? "" : "prev-track";
+                    if(!noteInput)
+                        return "move-up";
                     break;
                 case "down-chord":
                     if(isCursorInTablature())
                         return stringBelow() ? "" : "next-track";
+                    if(!noteInput)
+                        return "move-down";
                     break;
                 default:
                     return command;
