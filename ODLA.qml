@@ -160,11 +160,17 @@ MuseScore
                     break;
 
                 case "time-signature":
+                    let track = cursor.track;
                     var ts=newElement(Element.TIMESIG);
                     ts.timesig=fraction(odlaCommand.numerator,odlaCommand.denominator);
                     curScore.startCmd();
+                    if(track !== 0) // TODO: remove when solved bug in musescore
+                        cmd("prev-track")
                     cursor.add(ts);
+                    if(track !== 0)
+                        cmd("next-track")
                     curScore.endCmd();
+
                     // TODO: common time and alla breve
                     break;
 
