@@ -51,17 +51,18 @@ MuseScore
             }
             cursor.inputStateMode=Cursor.INPUT_STATE_SYNC_WITH_SCORE;
 
-            setNoteEntry(true);
+            setNoteInputMode(true);
 
             function parseCommand(command)
             {
+                debug("Received command: " + command);
+
                 newElementTick = cursor.tick;
                 if(!cursor.score.is(curScore))
                 {
                     cursor = curScore.newCursor();
                     cursor.inputStateMode=Cursor.INPUT_STATE_SYNC_WITH_SCORE;
                 }
-                debug("Received command: " + command);
                 var odlaCommand = JSON.parse(command);
 
                 if ('SpeechFlags' in odlaCommand)
@@ -71,7 +72,7 @@ MuseScore
                 }
 
                 if ('note_entry' in odlaCommand)
-                    setNoteEntry(odlaCommand.note_entry);
+                    setNoteInputMode(odlaCommand.note_entry);
 
                 switch (odlaCommand.type)
                 {
@@ -209,7 +210,7 @@ MuseScore
                     break;
 
                 case "note-input":
-                    setNoteEntry(!noteInput);
+                    setNoteInputMode(!noteInput);
                     break;
 
                 default:
@@ -229,14 +230,14 @@ MuseScore
                 case "next-chord":
                     if(!noteInput)
                         if(curScore.selection.isRange)
-                            setNoteEntry(true);
+                            setNoteInputMode(true);
                         else
                             return "next-element";
                     break;
                 case "prev-chord":
                     if(!noteInput)
                         if(curScore.selection.isRange)
-                            setNoteEntry(true);
+                            setNoteInputMode(true);
                         else
                             return "prev-element";
                     break;
@@ -262,7 +263,7 @@ MuseScore
                 switch(command)
                 {
                 case "hairpin":
-                    setNoteEntry(true);
+                    setNoteInputMode(true);
                     break;
                 }
             }
@@ -344,22 +345,22 @@ MuseScore
                 webSocket.sendTextMessage(JSON.stringify(toSay));
                 toBeRead = false;
             }
-
-            // Bad way (wait for better API) to ensure note input
-            function setNoteEntry(status)
-            {
-                if(status === true && (noteInput === false || curScore.selection.elements.length === 0))
-                {
-                    cmd("note-input-steptime");
-                    noteInput = true;
-                }
-                else if(status === false && noteInput === true)
-                {
-                    cmd("notation-escape");
-                    noteInput = false;
-                }
-            }
             webSocket.onTextMessageReceived.connect(parseCommand);
+        }
+    }
+
+    // Bad way (wait for better API) to ensure note input
+    function setNoteInputMode(status)
+    {
+        if(status === true && (noteInput === false || curScore.selection.elements.length === 0))
+        {
+            cmd("note-input-steptime");
+            noteInput = true;
+        }
+        else if(status === false && noteInput === true)
+        {
+            cmd("notation-escape");
+            noteInput = false;
         }
     }
 
@@ -435,15 +436,18 @@ MuseScore
     }
 
     // Can't find another way to play note
-    function playNote(note, chord)
+    function playCursor(isChord)
     {
-        //let nextTick = cursor.tick;
-        //cursor.rewindToTick(note.tick);
-        cmd("next-chord");
-        cmd("prev-chord");
-        if(!chord)
-            cursor.next();
-        //cursor.rewindToTick(nextTick);
+        if(cursor.tick === 0)
+        {
+            cmd("next-chord");
+            cmd("prev-chord");
+        }
+        else
+        {
+            cmd("prev-chord");
+            cmd("next-chord");
+        }
     }
 
     function getElementKeySig(element)
@@ -634,7 +638,7 @@ MuseScore
     }
 
 
-    function addNoteToScore(odlaKey, chord)
+    function addNoteToScore(odlaKey, isChord)
     {
         // save pitches list at cursor before note insertion
         // let pitchesBefore = pitchesList(newElementTick);
@@ -642,23 +646,21 @@ MuseScore
         curScore.startCmd();
 
         // Add a dummy note
-        cmd(chord /*&& cursor.element.type === Element.CHORD*/? "chord-g" : "note-g");
+        cmd(isChord ? "chord-g" : "note-g");
 
         // store cursor position
         let tickAfter= cursor.tick;
 
-        //        // move cursor to the beginning of insertion (case multiple notes tied)
-        //        cursor.rewindToTick(newElementTick);
-
         // correct the pitch for each notes
         let n = curScore.selection.elements[0];
 
+        // correct the pitch for each notes
         adjustNote(n, odlaKey)
 
-
         curScore.endCmd();
+
         // The only way to play just inserted note
-        playNote(n, chord);
+        playCursor(isChord);
 
         toBeRead = true;
     }
