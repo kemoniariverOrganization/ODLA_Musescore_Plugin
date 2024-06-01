@@ -59,6 +59,11 @@ MuseScore
 
             function parseCommand(command)
             {
+                if(!cursor.score.is(curScore))
+                {
+                    cursor = curScore.newCursor();
+                    cursor.inputStateMode=Cursor.INPUT_STATE_SYNC_WITH_SCORE;
+                }
                 debug("Received command: " + command);
                 var odlaCommand = JSON.parse(command);
 
