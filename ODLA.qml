@@ -435,13 +435,15 @@ MuseScore
     }
 
     // Can't find another way to play note
-    function playNote(tick)
+    function playNote(note, chord)
     {
-        let nextTick = cursor.tick;
-        cursor.rewindToTick(tick);
+        //let nextTick = cursor.tick;
+        //cursor.rewindToTick(note.tick);
         cmd("next-chord");
         cmd("prev-chord");
-        cursor.rewindToTick(nextTick);
+        if(!chord)
+            cursor.next();
+        //cursor.rewindToTick(nextTick);
     }
 
     function getElementKeySig(element)
@@ -635,42 +637,49 @@ MuseScore
     function addNoteToScore(odlaKey, chord)
     {
         // save pitches list at cursor before note insertion
-        let pitchesBefore = pitchesList(newElementTick);
+        // let pitchesBefore = pitchesList(newElementTick);
 
         curScore.startCmd();
 
         // Add a dummy note
-        cmd(chord && cursor.element.type === Element.CHORD? "chord-g" : "note-g")
+        cmd(chord /*&& cursor.element.type === Element.CHORD*/? "chord-g" : "note-g");
 
         // store cursor position
         let tickAfter= cursor.tick;
 
-        // move cursor to the beginning of insertion (case multiple notes tied)
-        cursor.rewindToTick(newElementTick);
+        //        // move cursor to the beginning of insertion (case multiple notes tied)
+        //        cursor.rewindToTick(newElementTick);
 
         // correct the pitch for each notes
-        while(cursor.tick < tickAfter)
-        {
-            let n = getInsertedNote(cursor.tick, pitchesBefore);
-            // if not found we are adding a note to an non-existing chord
-            n.line = odlaKey;
-            // Correct accidental but first time will only correct the pitch
-            n.accidentalType = Accidental.NONE;
-            // Second time will correct also tpc
-            n.accidentalType = Accidental.NONE;
-            cursor.next();
-        }
+        let n = curScore.selection.elements[0];
+
+        adjustNote(n, odlaKey)
+
+
         curScore.endCmd();
-
         // The only way to play just inserted note
-        playNote(tickAfter);
-
-        // If we are creating a chord will leave cursor to the same note
-        if(chord)
-            cursor.rewindToTick(newElementTick);
+        playNote(n, chord);
 
         toBeRead = true;
     }
+    function adjustNote(note, odlaKey)
+    {
+        while(true)
+        {
+            // if not found we are adding a note to an non-existing chord
+            note.line = odlaKey;
+            // Correct accidental but first time will only correct the pitch
+            note.accidentalType = Accidental.NONE;
+            // Second time will correct also tpc
+            note.accidentalType = Accidental.NONE;
+
+            if(note.tieBack)
+                note = note.firstTiedNote;
+            else
+                break;
+        }
+    }
+
 
     function printProperties(item)
     {
