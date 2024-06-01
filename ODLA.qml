@@ -441,21 +441,6 @@ MuseScore
         return retVal;
     }
 
-    // Can't find another way to play note
-    function playCursor(isChord)
-    {
-        if(cursor.tick === 0)
-        {
-            cmd("next-chord");
-            cmd("prev-chord");
-        }
-        else
-        {
-            cmd("prev-chord");
-            cmd("next-chord");
-        }
-    }
-
     function getElementKeySig(element)
     {
         var seg = getParentOfType(element, "Segment");
@@ -611,6 +596,7 @@ MuseScore
         curScore.endCmd();
         return true;
     }
+
     function getInsertedNote(tick, pitchesList)
     {
         cursor.rewindToTick(tick);
@@ -643,25 +629,18 @@ MuseScore
         return retVal;
     }
 
-
     function addNoteToScore(odlaKey, isChord)
     {
-        // save pitches list at cursor before note insertion
-        // let pitchesBefore = pitchesList(newElementTick);
-
         curScore.startCmd();
 
         // Add a dummy note
         cmd(isChord ? "chord-g" : "note-g");
 
-        // store cursor position
-        let tickAfter= cursor.tick;
-
-        // correct the pitch for each notes
+        // get the note just added
         let n = curScore.selection.elements[0];
 
-        // correct the pitch for each notes
-        adjustNote(n, odlaKey)
+        // correct the pitch for the note and its eventually tied note
+        adjustNote(n, odlaKey);
 
         curScore.endCmd();
 
@@ -670,6 +649,25 @@ MuseScore
 
         toBeRead = true;
     }
+
+
+    // Can't find another way to play note
+    function playCursor(isChord)
+    {
+        if(cursor.tick === 0)
+        {
+            cursor.next();
+            cmd("prev-chord");
+        }
+        else
+        {
+            cmd("prev-chord");
+            cursor.next();
+        }
+        if(isChord)
+            cursor.prev();
+    }
+
     function adjustNote(note, odlaKey)
     {
         while(true)
@@ -687,7 +685,6 @@ MuseScore
                 break;
         }
     }
-
 
     function printProperties(item)
     {
