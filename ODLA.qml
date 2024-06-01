@@ -12,13 +12,9 @@ MuseScore
     thumbnailName: "ODLA.png";
     requiresScore: false;
     property bool toBeRead: false;
-    property var latestElement: null;
-    property var latestChord: null;
+    property int newElementTick: 0;
     property var cursor: null;
     property bool noteInput: false;
-    property int noteOffset: 0;
-    property bool chord_active: false;
-    readonly property int dummyPitch: 127;
 
     readonly property int noteName        : 1 << 0;
     readonly property int durationName    : 1 << 1;
@@ -30,7 +26,7 @@ MuseScore
     readonly property int keySignName     : 1 << 7;
     readonly property int voiceNumber     : 1 << 8;
     readonly property int bpmNumber       : 1 << 9;
-    readonly property int other       : 1 << 9;
+    readonly property int inputState      : 1 << 10;
 
     onRun:
     {
@@ -59,6 +55,7 @@ MuseScore
 
             function parseCommand(command)
             {
+                newElementTick = cursor.tick;
                 if(!cursor.score.is(curScore))
                 {
                     cursor = curScore.newCursor();
@@ -223,8 +220,6 @@ MuseScore
                     cmd(odlaCommand.type);
                     afterCommand(odlaCommand.type);
                 }
-
-                latestChord = getThisOrPrevChord();
             }
 
             function replaceCommand(command)
@@ -274,23 +269,21 @@ MuseScore
 
             function voiceOver(SpeechFlags, extra = "")
             {
+                // Create message for ODLA VoiceOver
                 var toSay = {};
-
+                // This message is different from old version
                 toSay.version = "MS4";
-                if(!toBeRead)
-                    latestElement = getLastSelectedElement();
 
-                var seg = getParentOfType(latestElement, "Segment");
+                let toReadElement = null;
+                // if(toBeRead)
+                toReadElement = curScore.selection.elements[0];
+                // else
+                //     toReadElement = getTickElement(newElementTick);
 
-                if(seg.segmentType & Segment.BarLineType)
-                {
-                    toSay.other = "BARLINE";
-                }
-                else if(SpeechFlags === other)
-                {
-                    toSay.other = extra;
-                }
-                else if(curScore.selection.isRange)
+                var seg = getParentOfType(toReadElement, "Segment");
+
+
+                if(curScore.selection.isRange)
                 {
                     var nEl = curScore.selection.elements.length;
                     var startElement = curScore.selection.elements[0];
@@ -304,44 +297,49 @@ MuseScore
                     toSay.measureEnd = getElementMeasureNumber(endElement);
                     toSay.staffEnd = curScore.selection.endStaff;
                 }
-                else
+                else if(toReadElement.type === Element.NOTE || toReadElement.type === Element.REST)
                 {
                     if (SpeechFlags & noteName)
                     {
-                        toSay.pitch = getNotePitch(latestElement);
-                        toSay.tpc = latestElement.tpc;
+                        toSay.pitch = getNotePitch(toReadElement);
+                        toSay.tpc = toReadElement.tpc;
                     }
 
                     if (SpeechFlags & durationName)
                     {
-                        toSay.durationType = latestElement.durationType.type;
-                        toSay.durationDots = latestElement.durationType.dots;
+                        toSay.durationType = toReadElement.durationType.type;
+                        toSay.durationDots = toReadElement.durationType.dots;
                     }
 
                     if (SpeechFlags & beatNumber)
-                        toSay.BEA = getElementBeat(latestElement);
+                        toSay.BEA = getElementBeat(toReadElement);
 
                     if (SpeechFlags & measureNumber)
-                        toSay.MEA = getElementMeasureNumber(latestElement);
+                        toSay.MEA = getElementMeasureNumber(toReadElement);
 
                     if (SpeechFlags & staffNumber)
-                        toSay.STA = getElementStaff(latestElement);
+                        toSay.STA = getElementStaff(toReadElement);
 
                     if (SpeechFlags & timeSignFraction)
-                        toSay.TIM = latestElement.timesigActual.numerator + "/" + latestElement.timesigActual.denominator;
+                        toSay.TIM = toReadElement.timesigActual.numerator + "/" + toReadElement.timesigActual.denominator;
 
                     if (SpeechFlags & clefName)
-                        toSay.CLE = getElementClef(latestElement);
+                        toSay.CLE = getElementClef(toReadElement);
 
                     if (SpeechFlags & keySignName)
-                        toSay.KEY = getElementKeySig(latestElement);
+                        toSay.KEY = getElementKeySig(toReadElement);
 
                     if (SpeechFlags & voiceNumber)
-                        toSay.VOI = latestElement.voice + 1;
+                        toSay.VOI = toReadElement.voice + 1;
 
                     if (SpeechFlags & bpmNumber)
-                        toSay.BPM = getElementBPM(latestElement);
+                        toSay.BPM = getElementBPM(toReadElement);
                 }
+                else
+                    toSay.elementName = toReadElement.userName().toUpperCase();
+                if(SpeechFlags === inputState)
+                    toSay.IN = noteInput ? "INPUT_ON": "INPUT_OFF";
+
                 debug(JSON.stringify(toSay));
                 webSocket.sendTextMessage(JSON.stringify(toSay));
                 toBeRead = false;
@@ -353,13 +351,10 @@ MuseScore
                 if(status === true && (noteInput === false || curScore.selection.elements.length === 0))
                 {
                     cmd("note-input-steptime");
-                    voiceOver(other, "INPUT_ON"); // TODO: inviare solo a comando ricevuto
                     noteInput = true;
                 }
                 else if(status === false && noteInput === true)
                 {
-                    //cmd("toggle-insert-mode");
-                    voiceOver(other, "INPUT_OFF");
                     cmd("notation-escape");
                     noteInput = false;
                 }
@@ -377,25 +372,14 @@ MuseScore
         }
     }
 
-    function getLastSelectedElement()
+    function getTickElement(tick)
     {
-        var nEl = curScore.selection.elements.length;
-        return (nEl===0) ? null : curScore.selection.elements[nEl-1];
+        let currentTick = cursor.tick;
+        cursor.rewindToTick(tick);
+        let retVal = cursor.element;
+        cursor.rewindToTick(currentTick);
+        return retVal;
     }
-
-    function getThisOrPrevChord()
-    {
-        var seg = cursor.segment;
-        while(seg)
-        {
-            var chord = seg.elementAt(cursor.track);
-            if(chord.type !== Element.CHORD)
-                seg = seg.prev;
-            else return chord;
-        }
-        return null;
-    }
-
 
     /*
      * getNotePitch (Element) -> int
@@ -651,8 +635,7 @@ MuseScore
     function addNoteToScore(odlaKey, chord)
     {
         // save pitches list at cursor before note insertion
-        let tickBefore = cursor.tick;
-        let pitchesBefore = pitchesList(tickBefore);
+        let pitchesBefore = pitchesList(newElementTick);
 
         curScore.startCmd();
 
@@ -663,7 +646,7 @@ MuseScore
         let tickAfter= cursor.tick;
 
         // move cursor to the beginning of insertion (case multiple notes tied)
-        cursor.rewindToTick(tickBefore);
+        cursor.rewindToTick(newElementTick);
 
         // correct the pitch for each notes
         while(cursor.tick < tickAfter)
@@ -676,7 +659,6 @@ MuseScore
             // Second time will correct also tpc
             n.accidentalType = Accidental.NONE;
             cursor.next();
-            latestElement = n;
         }
         curScore.endCmd();
 
@@ -685,7 +667,7 @@ MuseScore
 
         // If we are creating a chord will leave cursor to the same note
         if(chord)
-            cursor.prev();
+            cursor.rewindToTick(newElementTick);
 
         toBeRead = true;
     }
