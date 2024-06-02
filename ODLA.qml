@@ -11,10 +11,12 @@ MuseScore
     categoryCode: "composing-arranging-tools"
     thumbnailName: "ODLA.png";
     requiresScore: false;
-    property bool toBeRead: false;
+    property bool chordActive: false;
     property int newElementTick: 0;
     property var cursor: null;
     property bool noteInput: false;
+    property var articulations: ({});
+    property var emptysegment: null;
 
     readonly property int noteName        : 1 << 0;
     readonly property int durationName    : 1 << 1;
@@ -52,7 +54,7 @@ MuseScore
             cursor.inputStateMode=Cursor.INPUT_STATE_SYNC_WITH_SCORE;
 
             setNoteInputMode(true);
-
+            emptysegment = curScore.lastSegment.clone();
             function parseCommand(command)
             {
                 debug("Received command: " + command);
@@ -195,8 +197,32 @@ MuseScore
                     curScore.startCmd();
                     cursor.add(tempo);
                     curScore.endCmd();
+                    break;
+                case "articulation":
+                    let els = curScore.selection.elements;
+                    let prevChord = null;
+
+                    curScore.startCmd();
+                    for(let i = 0; i < els.length; i++)
+                    {
+                        if(els[i].type === Element.NOTE)
+                        {
+                            let chord = els[i].parent;
+                            if(!chord.is(prevChord))
+                            {
+                                chord.add(newArticulation(odlaCommand.symid).clone());
+                                prevChord = chord;
+                            }
+                        }
+                        curScore.endCmd();
+                    }
 
                     break;
+                case "test":
+                    let s = newSegment();
+
+                    break;
+
                 case "goto":
                     var currentMeasureNumber = getElementMeasureNumber(cursor.element);
 
@@ -282,13 +308,8 @@ MuseScore
                 toSay.version = "MS4";
 
                 let toReadElement = null;
-                // if(toBeRead)
                 toReadElement = curScore.selection.elements[0];
-                // else
-                //     toReadElement = getTickElement(newElementTick);
-
                 var seg = getParentOfType(toReadElement, "Segment");
-
 
                 if(curScore.selection.isRange)
                 {
@@ -343,13 +364,14 @@ MuseScore
                         toSay.BPM = getElementBPM(toReadElement);
                 }
                 else
-                    toSay.elementName = toReadElement.userName().toUpperCase();
+                {
+                    toSay.elementName = toReadElement.userName().toUpperCase().replace(" ", "_");
+                }
                 if(SpeechFlags === inputState)
                     toSay.IN = noteInput ? "INPUT_ON": "INPUT_OFF";
 
                 debug(JSON.stringify(toSay));
                 webSocket.sendTextMessage(JSON.stringify(toSay));
-                toBeRead = false;
             }
             webSocket.onTextMessageReceived.connect(parseCommand);
         }
@@ -631,23 +653,16 @@ MuseScore
 
     function addNoteToScore(odlaKey, isChord)
     {
-        curScore.startCmd();
-
         // Add a dummy note
-        cmd(isChord ? "chord-g" : "note-g");
-
+        curScore.startCmd();
+        cursor.addNote(1, chordActive & isChord);
         // get the note just added
         let n = curScore.selection.elements[0];
-
         // correct the pitch for the note and its eventually tied note
         adjustNote(n, odlaKey);
-
         curScore.endCmd();
-
-        // The only way to play just inserted note
-        playCursor(isChord);
-
-        toBeRead = true;
+        playNote(n);
+        chordActive = isChord;
     }
 
 
@@ -684,6 +699,24 @@ MuseScore
             else
                 break;
         }
+    }
+
+    function newArticulation(symid)
+    {
+        if(!articulations[symid.toString()])
+        {
+            articulations[symid.toString()] = newElement(Element.ARTICULATION);
+            articulations[symid.toString()].symbol = symid;
+        }
+        return articulations[symid.toString()].clone();
+    }
+
+    function newSegment()
+    {
+        let retVal = emptysegment.clone();
+        retVal.segmentType = Segment.Clef;
+        debug("new segment type: " + retVal.segmentType);
+        return retVal.clone();
     }
 
     function printProperties(item)
