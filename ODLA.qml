@@ -665,22 +665,20 @@ MuseScore
         chordActive = isChord;
     }
 
-
     // Can't find another way to play note
-    function playCursor(isChord)
+    function playNote(note)
     {
-        if(cursor.tick === 0)
-        {
-            cursor.next();
-            cmd("prev-chord");
-        }
+        if(note.tpc <= 5)
+            cmd("flat2-post");
+        else if(note.tpc <= 12)
+            cmd("flat-post");
+        else if(note.tpc <= 19)
+            cmd("nat-post");
+        else if(note.tpc <= 26)
+            cmd("sharp-post");
         else
-        {
-            cmd("prev-chord");
-            cursor.next();
-        }
-        if(isChord)
-            cursor.prev();
+            cmd("sharp2-post");
+        note.accidentalType = Accidental.NONE;
     }
 
     function adjustNote(note, odlaKey)
