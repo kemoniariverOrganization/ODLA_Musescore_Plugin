@@ -162,17 +162,19 @@ MuseScore
                     break;
 
                 case "time-signature":
-                    let track = cursor.track;
+                    let currentNoteInput = noteInput;
+                    let currentTrack = cursor.track;
                     var ts=newElement(Element.TIMESIG);
                     ts.timesig=fraction(odlaCommand.numerator,odlaCommand.denominator);
+                    cursor.track = 0;
                     curScore.startCmd();
-                    if(track !== 0) // TODO: remove when solved bug in musescore
-                        cmd("prev-track")
                     cursor.add(ts);
-                    if(track !== 0)
-                        cmd("next-track")
                     curScore.endCmd();
-
+                    cursor.track = currentTrack;
+                    setNoteInputMode(currentNoteInput);
+                    setNoteInputMode(currentNoteInput);
+                    // ms4 crashes if add timesig in piano left hand track
+                    // so we have some bad code to compensate the problem
                     // TODO: common time and alla breve
                     break;
 
@@ -299,8 +301,9 @@ MuseScore
                 // This message is different from old version
                 toSay.version = "MS4";
 
-                let toReadElement = null;
-                toReadElement = curScore.selection.elements[0];
+                let toReadElement = curScore.selection.elements[0];
+                if(toReadElement === null)
+                    return;
                 var seg = getParentOfType(toReadElement, "Segment");
 
                 if(curScore.selection.isRange)
