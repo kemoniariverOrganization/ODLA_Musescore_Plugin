@@ -619,38 +619,6 @@ MuseScore
         return true;
     }
 
-    function getInsertedNote(tick, pitchesList)
-    {
-        cursor.rewindToTick(tick);
-        let notesList = cursor.element.notes;
-        if(notesList === 'undefined' || notesList.length === 0)
-            return null;
-        if(notesList.length === 1)
-            return notesList[0];
-
-        let found = false;
-        for(let i = 0; i < notesList.length; i++)
-        {
-            debug("noteList[" + i + "] = " + notesList[i].pitch);
-            if(!pitchesList.includes(notesList[i].pitch))
-                return notesList[i];
-        }
-        return null;
-    }
-
-    function pitchesList(tick)
-    {
-        cursor.rewindToTick(tick);
-        let el = cursor.element;
-
-        let retVal = [];
-
-        if(el.type === Element.CHORD)
-            for(let i = 0; i < el.notes.length; i++)
-                retVal[i] = el.notes[i].pitch;
-        return retVal;
-    }
-
     function addNoteToScore(odlaKey, isChord)
     {
         // Add a dummy note
