@@ -203,6 +203,8 @@ MuseScore
                     applyArticulation(curScore.selection.elements, odlaCommand.symid);
                     break;
 
+                case "remove-accidental":
+                    removeAccidental(curScore.selection.elements);
                     break;
 
                 case "goto":
@@ -665,6 +667,15 @@ MuseScore
         retVal.segmentType = Segment.Clef;
         debug("new segment type: " + retVal.segmentType);
         return retVal.clone();
+    }
+
+    function removeAccidental(elements)
+    {
+        curScore.startCmd();
+        for(let i = 0; i < elements.length; i++)
+            if(elements[i].type === Element.NOTE)
+                elements[i].accidentalType = Accidental.NONE;
+        curScore.endCmd();
     }
 
     function applyArticulation(elements, articulationSymID)
