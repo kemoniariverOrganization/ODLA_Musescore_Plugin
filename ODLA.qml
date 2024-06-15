@@ -618,6 +618,12 @@ MuseScore
         cursor.addNote(1, chordActive & isChord);
         // get the note just added
         let n = curScore.selection.elements[0];
+        // If current selected element is a rest we insert a new note anyway
+        if(n.type !== Element.NOTE)
+        {
+            cursor.addNote(1);
+            n = curScore.selection.elements[0];
+        }
         // correct the pitch for the note and its eventually tied note
         adjustNote(n, odlaKey);
         curScore.endCmd();
