@@ -261,13 +261,21 @@ MuseScore
                     if(isCursorInTablature())
                         return stringAbove() ? "" : "prev-track";
                     if(!noteInput)
+                    {
+                        if(curScore.selection.isRange)
+                            setNoteInputMode(true);
                         return "move-up";
+                    }
                     break;
                 case "down-chord":
                     if(isCursorInTablature())
                         return stringBelow() ? "" : "next-track";
                     if(!noteInput)
+                    {
+                        if(curScore.selection.isRange)
+                            setNoteInputMode(true);
                         return "move-down";
+                    }
                     break;
                 default:
                     return command;
