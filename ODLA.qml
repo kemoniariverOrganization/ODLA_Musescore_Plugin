@@ -198,28 +198,10 @@ MuseScore
                     cursor.add(tempo);
                     curScore.endCmd();
                     break;
+
                 case "articulation":
-                    let els = curScore.selection.elements;
-                    let prevChord = null;
-
-                    curScore.startCmd();
-                    for(let i = 0; i < els.length; i++)
-                    {
-                        if(els[i].type === Element.NOTE)
-                        {
-                            let chord = els[i].parent;
-                            if(!chord.is(prevChord))
-                            {
-                                chord.add(newArticulation(odlaCommand.symid).clone());
-                                prevChord = chord;
-                            }
-                        }
-                        curScore.endCmd();
-                    }
-
+                    applyArticulation(curScore.selection.elements, odlaCommand.symid);
                     break;
-                case "test":
-                    let s = newSegment();
 
                     break;
 
@@ -683,6 +665,25 @@ MuseScore
         retVal.segmentType = Segment.Clef;
         debug("new segment type: " + retVal.segmentType);
         return retVal.clone();
+    }
+
+    function applyArticulation(elements, articulationSymID)
+    {
+        let prevChord = null;
+        curScore.startCmd();
+        for(let i = 0; i < elements.length; i++)
+        {
+            if(elements[i].type === Element.NOTE)
+            {
+                let chord = elements[i].parent;
+                if(!chord.is(prevChord))
+                {
+                    chord.add(newArticulation(articulationSymID).clone());
+                    prevChord = chord;
+                }
+            }
+        }
+        curScore.endCmd();
     }
 
     function printProperties(item)
