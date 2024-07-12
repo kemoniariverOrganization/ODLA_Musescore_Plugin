@@ -15,7 +15,7 @@ MuseScore
     property int newElementTick: 0;
     property var cursor: null;
     property bool noteInput: false;
-    property var articulations: ({});
+    property var chordElements: ({});
     property var emptysegment: null;
 
     readonly property int noteName        : 1 << 0;
@@ -44,7 +44,6 @@ MuseScore
         onClientConnected: function(webSocket)
         {
             debug("Client connected");
-
             cursor = curScore.newCursor();
             if(cursor === null)
             {
@@ -142,16 +141,13 @@ MuseScore
                 case "select-measures":
                     var firstMeasure = getMeasure(odlaCommand.firstMeasure);
                     var lastMeasure = getMeasure(odlaCommand.lastMeasure);
-
-
                     var startTick = firstMeasure.firstSegment.tick;
                     var endTick = lastMeasure.lastSegment.tick;
-
                     curScore.startCmd();
                     curScore.selection.selectRange(startTick, endTick+1, 0, curScore.nstaves)
                     curScore.endCmd();
-
                     break;
+
                 case "dynamics":
                     var dyn = newElement(Element.DYNAMIC);
                     dyn.subtype = odlaCommand.subtype;
@@ -185,14 +181,14 @@ MuseScore
                         selectStringFromOdlaKey(odlaCommand.odlaKey);
                     break;
 
-                case "insert-measures":
+                case "insert-measures":                    
+                    for(let i = 0; i < odlaCommand.value; i++)
+                        cmd("insert-measure")
                     curScore.startCmd();
-                    curScore.appendMeasures(odlaCommand.value ? odlaCommand.value : 1);
-                    curScore.endCmd();
                     break;
 
                 case "tempo":
-                    var tempo = newElement(Element.TEMPO_TEXT);
+                    let tempo = newElement(Element.TEMPO_TEXT);
                     tempo.followText = 1; // va aggiornato ?
                     tempo.text = odlaCommand.text;
                     tempo.tempo = parseFloat(odlaCommand.tempo / odlaCommand.time_divider);
@@ -202,7 +198,17 @@ MuseScore
                     break;
 
                 case "articulation":
-                    applyArticulation(curScore.selection.elements, odlaCommand.symid);
+                    applyChordElement(curScore.selection.elements, odlaCommand.symbol, odlaCommand.type);
+                    break;
+
+                case "element":
+                    let el = newElement(odlaCommand.elementType);
+                    el.symbol = odlaCommand.symbol;
+                    el.subtype = odlaCommand.subtype;
+                    el.text = odlaCommand.text;
+                    curScore.startCmd();
+                    cursor.add(el);
+                    curScore.endCmd();
                     break;
 
                 case "remove-accidental":
@@ -360,7 +366,8 @@ MuseScore
                 }
                 else
                 {
-                    toSay.elementName = toReadElement.userName().toUpperCase().replace(" ", "_");
+                    let name = toReadElement.userName() + " " + toReadElement.subtypeName();
+                    toSay.elementName = name.toUpperCase().replace(" ", "_");
                 }
                 if(SpeechFlags === inputState)
                     toSay.IN = noteInput ? "INPUT_ON": "INPUT_OFF";
@@ -668,14 +675,25 @@ MuseScore
         }
     }
 
-    function newArticulation(symid)
+    function newChordElement(symbol, typeString)
     {
-        if(!articulations[symid.toString()])
+        let type = Element.INVALID;
+        switch(typeString)
         {
-            articulations[symid.toString()] = newElement(Element.ARTICULATION);
-            articulations[symid.toString()].symbol = symid;
+        case "articulation":
+            type = Element.ARTICULATION;
+            break;
+        case "arpeggio":
+            type = Element.ARPEGGIO;
+            break;
         }
-        return articulations[symid.toString()].clone();
+
+        if(!chordElements[symbol.toString()])
+        {
+            chordElements[symbol.toString()] = newElement(type);
+            chordElements[symbol.toString()].symbol = symbol;
+        }
+        return chordElements[symbol.toString()].clone();
     }
 
     function newSegment()
@@ -695,8 +713,9 @@ MuseScore
         curScore.endCmd();
     }
 
-    function applyArticulation(elements, articulationSymID)
+    function applyChordElement(elements, articulationsymbol, typeString)
     {
+        let chordElement = null;
         let prevChord = null;
         curScore.startCmd();
         for(let i = 0; i < elements.length; i++)
@@ -706,7 +725,8 @@ MuseScore
                 let chord = elements[i].parent;
                 if(!chord.is(prevChord))
                 {
-                    chord.add(newArticulation(articulationSymID).clone());
+                    chordElement = newChordElement(articulationsymbol, typeString).clone();
+                    chord.add(chordElement);
                     prevChord = chord;
                 }
             }
