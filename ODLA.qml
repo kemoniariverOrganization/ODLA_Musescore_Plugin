@@ -38,18 +38,18 @@ MuseScore
     readonly property int voiceNumber     : 1 << 8;
     readonly property int bpmNumber       : 1 << 9;
     readonly property int inputState      : 1 << 10;
-
+    
     onRun:
     {
         debug("ODLA Plugin is running");
     }
-
+    
     WebSocketServer
     {
         port: 6433
         id: server
         listen: true
-
+        
         onClientConnected: function(webSocket)
         {
             debug("Client connected");
