@@ -1,3 +1,4 @@
+//PLUGIN_VERSION:1.6.4
 import QtQuick 2.2
 import MuseScore 3.0
 import QtWebSockets 1.5
