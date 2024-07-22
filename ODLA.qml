@@ -1,20 +1,23 @@
 //PLUGIN_VERSION:1.6.4
-import QtQuick 2.2
+import QtQuick 2.2;
+import QtWebSockets 1.5;
+import QtQuick.Controls 2.2;
 import MuseScore 3.0
-import QtWebSockets 1.5
-import QtQuick.Controls 2.2
 
 MuseScore
 {
+    id: plugin;
     version: "3.5";
     description: qsTr("This plugin allows the use of the ODLA keyboard in the Musescore program");
     title: "ODLA";
     categoryCode: "composing-arranging-tools"
     thumbnailName: "ODLA.png";
     requiresScore: false;
+
     property bool chordActive: false;
-    property int newElementTick: 0;
     property var cursor: null;
+    property var socket: null;
+    property var lastScore: null;
     property bool noteInput: false;
     property var chordElements: ({});
 
@@ -27,329 +30,208 @@ MuseScore
     readonly property int barline_REPEAT_START_STOP : 1 << 6;
     readonly property int barline_DOTTED            : 1 << 7;
 
-    readonly property int noteName        : 1 << 0;
-    readonly property int durationName    : 1 << 1;
-    readonly property int beatNumber      : 1 << 2;
-    readonly property int measureNumber   : 1 << 3;
-    readonly property int staffNumber     : 1 << 4;
-    readonly property int timeSignFraction: 1 << 5;
-    readonly property int clefName        : 1 << 6;
-    readonly property int keySignName     : 1 << 7;
-    readonly property int voiceNumber     : 1 << 8;
-    readonly property int bpmNumber       : 1 << 9;
-    readonly property int inputState      : 1 << 10;
-
-    onRun:
-    {
-        debug("ODLA Plugin is running");
-    }
-
     WebSocketServer
     {
         port: 6433
-        id: server
         listen: true
 
         onClientConnected: function(webSocket)
         {
             debug("Client connected");
-            cursor = curScore.newCursor();
-            if(cursor === null)
-            {
-                debug("Can't create cursor ...")
-                return;
-            }
-            cursor.inputStateMode=Cursor.INPUT_STATE_SYNC_WITH_SCORE;
-
-            setNoteInputMode(true);
-
-            function parseCommand(command)
-            {
-                debug("Received command: " + command);
-
-                newElementTick = cursor.tick;
-                if(!cursor.score.is(curScore))
-                {
-                    cursor = curScore.newCursor();
-                    cursor.inputStateMode=Cursor.INPUT_STATE_SYNC_WITH_SCORE;
-                }
-                var odlaCommand = JSON.parse(command);
-
-                if ('SpeechFlags' in odlaCommand)
-                {
-                    voiceOver(odlaCommand.SpeechFlags);
-                    return;
-                }
-
-                if ('note_entry' in odlaCommand)
-                    setNoteInputMode(odlaCommand.note_entry);
-
-                switch (odlaCommand.type)
-                {
-
-                case "barline":
-                    let prevTick = cursor.tick;
-                    cursor.filter = Segment.BarLineType;
-                    if(odlaCommand.value === barline_REPEAT_START)
-                    {
-                        cursor.prev();
-                        cursor.prev();
-                    }
-                    else
-                        cursor.next();
-
-                    if(cursor.element !== "undefined" && cursor.element !== null)
-                    {
-                        curScore.startCmd();
-                        cursor.element.barlineType = odlaCommand.value;
-                        curScore.endCmd();
-                    }
-                    cursor.filter = Segment.ChordRest;
-                    cursor.next();
-                    cursor.prev();
-
-                    setNoteInputMode(false);
-                    setNoteInputMode(true);
-                    break;
-                case "select-measures":
-                    var firstMeasure = getMeasure(odlaCommand.firstMeasure);
-                    var lastMeasure = getMeasure(odlaCommand.lastMeasure);
-                    var startTick = firstMeasure.firstSegment.tick;
-                    var endTick = lastMeasure.lastSegment.tick;
-                    curScore.startCmd();
-                    curScore.selection.selectRange(startTick, endTick+1, 0, curScore.nstaves)
-                    curScore.endCmd();
-                    break;
-
-                case "dynamics":
-                    var dyn = newElement(Element.DYNAMIC);
-                    dyn.subtype = odlaCommand.subtype;
-                    dyn.text = odlaCommand.text;
-                    curScore.startCmd();
-                    cursor.add(dyn);
-                    curScore.endCmd();
-                    break;
-
-                case "time-signature":
-                    let currentNoteInput = noteInput;
-                    let currentTrack = cursor.track;
-                    var ts=newElement(Element.TIMESIG);
-                    ts.timesig=fraction(odlaCommand.numerator,odlaCommand.denominator);
-                    cursor.track = 0;
-                    curScore.startCmd();
-                    cursor.add(ts);
-                    curScore.endCmd();
-                    cursor.track = currentTrack;
-                    setNoteInputMode(currentNoteInput);
-                    setNoteInputMode(currentNoteInput);
-                    // ms4 crashes if add timesig in piano left hand track
-                    // so we have some bad code to compensate the problem
-                    // TODO: common time and alla breve
-                    break;
-
-                case "staff-pressed":
-                    if(!isCursorInTablature())
-                        addNoteToScore(odlaCommand.odlaKey, odlaCommand.chord);
-                    else
-                        selectStringFromOdlaKey(odlaCommand.odlaKey);
-                    break;
-
-                case "insert-measures":
-                    for(let i = 0; i < odlaCommand.value; i++)
-                        cmd("insert-measure")
-                    curScore.startCmd();
-                    break;
-
-                case "tempo":
-                    let tempo = newElement(Element.TEMPO_TEXT);
-                    tempo.followText = 1; // va aggiornato ?
-                    tempo.text = odlaCommand.text;
-                    tempo.tempo = parseFloat(odlaCommand.tempo / odlaCommand.time_divider);
-                    curScore.startCmd();
-                    cursor.add(tempo);
-                    curScore.endCmd();
-                    break;
-
-                case "articulation":
-                    applyChordElement(curScore.selection.elements, odlaCommand.symbol, odlaCommand.type);
-                    break;
-
-                case "element":
-                    let el = newElement(odlaCommand.elementType);
-                    el.symbol = odlaCommand.symbol;
-                    el.subtype = odlaCommand.subtype;
-                    el.text = odlaCommand.text;
-                    curScore.startCmd();
-                    cursor.add(el);
-                    curScore.endCmd();
-                    break;
-
-                case "remove-accidental":
-                    removeAccidental(curScore.selection.elements);
-                    break;
-
-                case "goto":
-                    var currentMeasureNumber = getElementMeasureNumber(cursor.element);
-
-                    while(currentMeasureNumber !== odlaCommand.value)
-                    {
-                        if(currentMeasureNumber > odlaCommand.value)
-                        {
-                            cmd("notation-move-left-quickly");
-                            currentMeasureNumber--;
-                        }
-                        else
-                        {
-                            cmd("notation-move-right-quickly");
-                            currentMeasureNumber++;
-                        }
-                    }
-                    break;
-
-                case "note-input":
-                    setNoteInputMode(!noteInput);
-                    break;
-
-                default:
-                    odlaCommand.type = replaceCommand(odlaCommand.type);
-                    if(odlaCommand.type === "")
-                        return
-                    debug("executing: " + odlaCommand.type);
-                    cmd(odlaCommand.type);
-                    afterCommand(odlaCommand.type);
-                }
-            }
-
-            function replaceCommand(command)
-            {
-                switch(command)
-                {
-                case "next-chord":
-                    if(!noteInput)
-                        if(curScore.selection.isRange)
-                            setNoteInputMode(true);
-                        else
-                            return "next-element";
-                    break;
-                case "prev-chord":
-                    if(!noteInput)
-                        if(curScore.selection.isRange)
-                            setNoteInputMode(true);
-                        else
-                            return "prev-element";
-                    break;
-                case "up-chord":
-                    if(isCursorInTablature())
-                        return stringAbove() ? "" : "prev-track";
-                    if(!noteInput)
-                    {
-                        if(curScore.selection.isRange)
-                            setNoteInputMode(true);
-                        return "move-up";
-                    }
-                    break;
-                case "down-chord":
-                    if(isCursorInTablature())
-                        return stringBelow() ? "" : "next-track";
-                    if(!noteInput)
-                    {
-                        if(curScore.selection.isRange)
-                            setNoteInputMode(true);
-                        return "move-down";
-                    }
-                    break;
-                default:
-                    return command;
-                }
-                return command;
-            }
-            function afterCommand(command)
-            {
-                switch(command)
-                {
-                case "hairpin":
-                    setNoteInputMode(true);
-                    break;
-                }
-            }
-
-            function voiceOver(SpeechFlags, extra = "")
-            {
-                // Create message for ODLA VoiceOver
-                var toSay = {};
-                // This message is different from old version
-                toSay.version = "MS4";
-
-                let toReadElement = curScore.selection.elements[0];
-                if(toReadElement === null)
-                    return;
-                var seg = getParentOfType(toReadElement, "Segment");
-
-                if(curScore.selection.isRange)
-                {
-                    var nEl = curScore.selection.elements.length;
-                    var startElement = curScore.selection.elements[0];
-                    var endElement = curScore.selection.elements[nEl-1];
-
-                    toSay.RANGE = true;
-                    toSay.beatStart = getElementBeat(startElement);
-                    toSay.measureStart = getElementMeasureNumber(startElement);
-                    toSay.staffStart = curScore.selection.startStaff + 1; // a bug?
-                    toSay.beatEnd= getElementBeat(endElement);
-                    toSay.measureEnd = getElementMeasureNumber(endElement);
-                    toSay.staffEnd = curScore.selection.endStaff;
-                }
-                else if(toReadElement.type === Element.NOTE || toReadElement.type === Element.REST)
-                {
-                    if (SpeechFlags & noteName)
-                    {
-                        toSay.pitch = getNotePitch(toReadElement);
-                        toSay.tpc = toReadElement.tpc;
-                    }
-
-                    if (SpeechFlags & durationName)
-                    {
-                        toSay.durationType = toReadElement.durationType.type;
-                        toSay.durationDots = toReadElement.durationType.dots;
-                    }
-
-                    if (SpeechFlags & beatNumber)
-                        toSay.BEA = getElementBeat(toReadElement);
-
-                    if (SpeechFlags & measureNumber)
-                        toSay.MEA = getElementMeasureNumber(toReadElement);
-
-                    if (SpeechFlags & staffNumber)
-                        toSay.STA = getElementStaff(toReadElement);
-
-                    if (SpeechFlags & timeSignFraction)
-                        toSay.TIM = toReadElement.timesigActual.numerator + "/" + toReadElement.timesigActual.denominator;
-
-                    if (SpeechFlags & clefName)
-                        toSay.CLE = getElementClef(toReadElement);
-
-                    if (SpeechFlags & keySignName)
-                        toSay.KEY = getElementKeySig(toReadElement);
-
-                    if (SpeechFlags & voiceNumber)
-                        toSay.VOI = toReadElement.voice + 1;
-
-                    if (SpeechFlags & bpmNumber)
-                        toSay.BPM = getElementBPM(toReadElement);
-                }
-                else
-                {
-                    let name = toReadElement.userName() + " " + toReadElement.subtypeName();
-                    toSay.elementName = name.toUpperCase().replace(" ", "_");
-                }
-                if(SpeechFlags === inputState)
-                    toSay.IN = noteInput ? "INPUT_ON": "INPUT_OFF";
-
-                debug(JSON.stringify(toSay));
-                webSocket.sendTextMessage(JSON.stringify(toSay));
-            }
+            socket = webSocket;
             webSocket.onTextMessageReceived.connect(parseCommand);
         }
+    }
+
+    Timer
+    {
+        id: newScoreOpenedTimer
+        interval: 500
+        running: true
+        repeat: true
+
+        onTriggered:
+        {
+            // If score has changed (even if from null)
+            if(newScoreOpened())
+            {
+                cursor = curScore.newCursor();
+                cursor.inputStateMode=Cursor.INPUT_STATE_SYNC_WITH_SCORE;
+                setNoteInputMode(true);
+            }
+        }
+    }
+
+    function newScoreOpened()
+    {
+        let changed = false;
+        if(lastScore === null && curScore !== null)
+        {
+            debug("Score opened");
+            changed = true;
+        }
+        else if(lastScore !== null && curScore !== null && !lastScore.is(curScore))
+        {
+            debug("Score changed");
+            changed = true;
+        }
+        lastScore = curScore;
+        return changed;
+    }
+
+    onRun:
+    {
+        debug("ODLA Plugin is running");
+        plugin = this;
+        newScoreOpenedTimer.start();
+    }
+
+    function parseCommand(command)
+    {
+        debug("Received command: " + command);
+        let odlaCommand = JSON.parse(command);
+
+        if (curScore !== null)
+        {
+            if ('SpeechFlags' in odlaCommand)
+            {
+                debug("Creating and sending speech message");
+                let message = createSpeechMessage(odlaCommand.SpeechFlags);
+                socket.sendTextMessage(message);
+            }
+            if ('note_entry' in odlaCommand)
+            {
+                debug("Executing setNoteInputMode");
+                setNoteInputMode(odlaCommand.note_entry);
+            }
+
+            if (typeof plugin[odlaCommand.functionName] === "function" && odlaCommand.functionName !== "undefined")
+            {
+                debug("Executing function: " + odlaCommand.functionName);
+                plugin[odlaCommand.functionName](odlaCommand);
+            }
+        }
+
+        if (odlaCommand.functionName && typeof plugin[odlaCommand.functionName] !== 'function')
+        {
+            debug("Executing shortcut: " + odlaCommand.functionName);
+            executeShortcut(odlaCommand.functionName);
+        }
+    }
+
+    function setBarline(p)
+    {
+
+        let prevTick = cursor.tick;
+        cursor.filter = Segment.BarLineType;
+        if(p.value === barline_REPEAT_START)
+        {
+            cursor.prev();
+            cursor.prev();
+        }
+        else
+            cursor.next();
+
+        if(cursor.element !== "undefined" && cursor.element !== null)
+        {
+            curScore.startCmd();
+            cursor.element.barlineType = p.value;
+            curScore.endCmd();
+        }
+        cursor.filter = Segment.ChordRest;
+        cursor.next();
+        cursor.prev();
+
+        setNoteInputMode(false);
+        setNoteInputMode(true);
+    }
+
+    function selectMeasures(p)
+    {
+        let startTick = p.firstMeasure.firstSegment.tick;
+        let endTick = p.lastMeasure.lastSegment.tick;
+        curScore.startCmd();
+        curScore.selection.selectRange(startTick, endTick+1, 0, curScore.nstaves)
+        curScore.endCmd();
+    }
+
+    function addDynamic(p)
+    {
+        let dyn = newElement(Element.DYNAMIC);
+        dyn.subtype = p.subtype;
+        dyn.text = p.text;
+        curScore.startCmd();
+        cursor.add(dyn);
+        curScore.endCmd();
+    }
+
+    function addTimeSignature(p)
+    {
+        let currentNoteInput = noteInput;
+        let currentTrack = cursor.track;
+        let ts=newElement(Element.TIMESIG);
+        ts.timesig=fraction(p.numerator, p.denominator);
+        cursor.track = 0;
+        curScore.startCmd();
+        cursor.add(ts);
+        curScore.endCmd();
+        cursor.track = currentTrack;
+        setNoteInputMode(currentNoteInput);
+        setNoteInputMode(currentNoteInput);
+        // ms4 crashes if add timesig in piano left hand track
+        // so we have some bad code to compensate the problem
+        // TODO: common time and alla breve
+    }
+
+    function staffPressed(p)
+    {
+        if(!isCursorInTablature())
+            addNoteToScore(p.odlaKey, p.chord);
+        else
+            selectStringFromOdlaKey(p.odlaKey);
+    }
+
+    function insertMeasures(p)
+    {
+        debug("inserting: " + p.value + " measures")
+        for(let i = 0; i < p.value; i++)
+            cmd("insert-measure")
+    }
+
+    function addTempo(p)
+    {
+        let t = newElement(Element.TEMPO_TEXT);
+        t.followText = 1; // va aggiornato ?
+        t.text = p.text;
+        t.tempo = parseFloat(p.tempo / p.time_divider);
+        curScore.startCmd();
+        cursor.add(t);
+        curScore.endCmd();
+    }
+
+    function goTo(p)
+    {
+        let currentMeasureNumber = getElementMeasureNumber(cursor.element);
+
+        while(currentMeasureNumber !== p.value)
+        {
+            if(currentMeasureNumber > p.value)
+            {
+                cmd("notation-move-left-quickly");
+                currentMeasureNumber--;
+            }
+            else
+            {
+                cmd("notation-move-right-quickly");
+                currentMeasureNumber++;
+            }
+        }
+    }
+
+    function toggleNoteInputMode(p)
+    {
+        debug(p);
+        setNoteInputMode(!noteInput);
     }
 
     // Bad way (wait for better API) to ensure note input
@@ -407,21 +289,21 @@ MuseScore
         return 0;
     }
 
-    function getElementBeat(element) {
-
-        var timeSigNum = element.timesigActual.numerator;
-        var timeSigDen = element.timesigActual.denominator;
-        var absoluteTick = getParentOfType(element, "Segment").tick;
-        var firstMeasureTick = getParentOfType(element, "Measure").firstSegment.tick;
-        var relativeTick = absoluteTick - firstMeasureTick;
-        var totalTickInMeasure = 4 * division * timeSigNum/timeSigDen;
-        var beat = Math.floor(relativeTick * timeSigNum / totalTickInMeasure) + 1;
+    function getElementBeat(element)
+    {
+        let timeSigNum = element.timesigActual.numerator;
+        let timeSigDen = element.timesigActual.denominator;
+        let absoluteTick = getParentOfType(element, "Segment").tick;
+        let firstMeasureTick = getParentOfType(element, "Measure").firstSegment.tick;
+        let relativeTick = absoluteTick - firstMeasureTick;
+        let totalTickInMeasure = 4 * division * timeSigNum/timeSigDen;
+        let beat = Math.floor(relativeTick * timeSigNum / totalTickInMeasure) + 1;
         return beat;
     }
 
     function getElementClef(element) {
-        var testNote = testPitchNearSegment(60, element.parent);
-        var posY = testNote.posY;
+        let testNote = testPitchNearSegment(60, element.parent);
+        let posY = testNote.posY;
         cmd("undo");
         return Math.round(posY * 10);
     }
@@ -433,22 +315,22 @@ MuseScore
         cursor.addNote(pitch);
         curScore.endCmd();
         cursor.prev();
-        var retVal = cursor.element.notes[0];
+        let retVal = cursor.element.notes[0];
         cmd("undo");
         return retVal;
     }
 
     function getElementKeySig(element)
     {
-        var seg = getParentOfType(element, "Segment");
+        let seg = getParentOfType(element, "Segment");
         cursor.rewindToTick(seg.tick);
         return cursor.keySignature;
     }
 
     function getElementBPM(element)
     {
-        var seg = getParentOfType(element, "Segment");
-        var timeSigDen = element.timesigActual.denominator;
+        let seg = getParentOfType(element, "Segment");
+        let timeSigDen = element.timesigActual.denominator;
         cursor.rewindToTick(seg.tick);
         return Math.round(cursor.tempo * timeSigDen * division / 32);
     }
@@ -459,8 +341,8 @@ MuseScore
      */
     function getMeasure(number)
     {
-        var measure = curScore.firstMeasure;
-        var counter = 1;
+        let measure = curScore.firstMeasure;
+        let counter = 1;
         while (counter++ !== number && measure.nextMeasure !== null)
             measure = measure.nextMeasure;
         return measure;
@@ -468,9 +350,9 @@ MuseScore
 
     function getElementMeasureNumber(element)
     {
-        var measure = curScore.firstMeasure;
-        var targetMeasure = getParentOfType(element, "Measure");
-        var counter = 1;
+        let measure = curScore.firstMeasure;
+        let targetMeasure = getParentOfType(element, "Measure");
+        let counter = 1;
         while (!measure.is(targetMeasure))
         {
             ++counter;
@@ -490,56 +372,6 @@ MuseScore
         return null;
     }
 
-    function getNextSeg(obj, type)
-    {
-        var s = getParentOfType(obj, "Segment").next;
-        while (s)
-        {
-            if (s.segmentType & type)
-                return s;
-            s = s.next;
-        }
-        return null;
-    }
-
-    function getPrevSeg(segment, type)
-    {
-        var s = getParentOfType(obj, "Segment").prev;
-        while (s)
-        {
-            if (s.segmentType & type) // segment type is a flag
-                return s;
-            s = s.prev;
-        }
-        return null;
-    }
-
-    function getPrevEl(obj, type)
-    {
-        var s = getParentOfType(obj, "Segment").prev;
-        while (s)
-        {
-            var e = s.elementAt(cursor.track);
-            if (e && e.type === type)
-                return e;
-            s = s.prev;
-        }
-        return null;
-    }
-
-    function getNextEl(obj, type)
-    {
-        var s = getParentOfType(obj, "Segment").next;
-        while (s)
-        {
-            var e = s.elementAt(cursor.track);
-            if (e && e.type === type)
-                return e;
-            s = s.next;
-        }
-        return null;
-    }
-
     function getStringNumber()
     {
         if(isCursorInTablature())
@@ -552,12 +384,12 @@ MuseScore
     {
         if(odlaKey < 0)
             return;
-        var nStrings = getStringNumber();
+        let nStrings = getStringNumber();
 
         if(nStrings === -1)
             return;
 
-        var string = Math.min(Math.floor(odlaKey / 2), nStrings - 1);
+        let string = Math.min(Math.floor(odlaKey / 2), nStrings - 1);
 
         curScore.startCmd();
         cursor.stringNumber = string;
@@ -566,7 +398,7 @@ MuseScore
 
     function stringBelow()
     {
-        var nStrings = getStringNumber();
+        let nStrings = getStringNumber();
 
         if(cursor.stringNumber >= nStrings - 1)
         {
@@ -648,15 +480,15 @@ MuseScore
         }
     }
 
-    function newChordElement(symbol, typeString)
+    function newChordElement(typeString, symbol)
     {
         let type = Element.INVALID;
         switch(typeString)
         {
-        case "articulation":
+        case "addArticulation":
             type = Element.ARTICULATION;
             break;
-        case "arpeggio":
+        case "addArpeggio":
             type = Element.ARPEGGIO;
             break;
         }
@@ -669,8 +501,10 @@ MuseScore
         return chordElements[symbol.toString()].clone();
     }
 
-    function removeAccidental(elements)
+    function removeAccidental(p)
     {
+        debug(p);
+        let elements = curScore.selection.elements;
         curScore.startCmd();
         for(let i = 0; i < elements.length; i++)
             if(elements[i].type === Element.NOTE)
@@ -678,8 +512,14 @@ MuseScore
         curScore.endCmd();
     }
 
-    function applyChordElement(elements, articulationsymbol, typeString)
+    function addArpeggio(p)
     {
+        addArticulation(p);
+    }
+
+    function addArticulation(p)
+    {
+        let elements = curScore.selection.elements;
         let chordElement = null;
         let prevChord = null;
         curScore.startCmd();
@@ -690,7 +530,7 @@ MuseScore
                 let chord = elements[i].parent;
                 if(!chord.is(prevChord))
                 {
-                    chordElement = newChordElement(articulationsymbol, typeString).clone();
+                    chordElement = newChordElement(p.functionName, p.symbol).clone();
                     chord.add(chordElement);
                     prevChord = chord;
                 }
@@ -699,24 +539,194 @@ MuseScore
         curScore.endCmd();
     }
 
+    function executeShortcut(command)
+    {
+        if(command === "")
+            return;
+
+        switch(command)
+        {
+        case "next-chord":
+            if(!noteInput)
+                if(curScore.selection.isRange)
+                    setNoteInputMode(true);
+                else
+                    command = "next-element";
+            break;
+        case "prev-chord":
+            if(!noteInput)
+                if(curScore.selection.isRange)
+                    setNoteInputMode(true);
+                else
+                    command = "prev-element";
+            break;
+        case "up-chord":
+            if(isCursorInTablature())
+                command = stringAbove() ? "" : "prev-track";
+            if(!noteInput)
+            {
+                if(curScore.selection.isRange)
+                    setNoteInputMode(true);
+                command = "move-up";
+            }
+            break;
+
+        case "down-chord":
+            if(isCursorInTablature())
+                command = stringBelow() ? "" : "next-track";
+            if(!noteInput)
+            {
+                if(curScore.selection.isRange)
+                    setNoteInputMode(true);
+                command = "move-down";
+            }
+            break;
+        }
+        debug("executing: " + command);
+        cmd(command);
+        afterCommand(command);
+    }
+
+    function afterCommand(command)
+    {
+        switch(command)
+        {
+        case "hairpin":
+            setNoteInputMode(true);
+            break;
+        }
+    }
+
+    // VoiceOver code
+    readonly property int noteName        : 1 << 0;
+    readonly property int durationName    : 1 << 1;
+    readonly property int beatNumber      : 1 << 2;
+    readonly property int measureNumber   : 1 << 3;
+    readonly property int staffNumber     : 1 << 4;
+    readonly property int timeSignFraction: 1 << 5;
+    readonly property int clefName        : 1 << 6;
+    readonly property int keySignName     : 1 << 7;
+    readonly property int voiceNumber     : 1 << 8;
+    readonly property int bpmNumber       : 1 << 9;
+    readonly property int inputState      : 1 << 10;
+
+    function initSpeechMessage(range)
+    {
+        // Create message for ODLA VoiceOver
+        let message = {};
+
+        // This message is different from old version
+        message.version = "MS4";
+
+        // Return package initialized
+        return message;
+    }
+
+    function createSpeechMessage(flags)
+    {
+        let message = "";
+        let isRange = curScore.selection.isRange;
+        let elements = curScore.selection.elements;
+        if(elements.length > 0)
+        {
+            if(isRange)
+                message = range_JSON_Info(flags, elements);
+            else
+                message = element_JSON_Info(flags, elements[0]);
+        }
+        else
+            debug("No element info for speech");
+        if(flags & inputState)
+            message.IN = noteInput ? "INPUT_ON": "INPUT_OFF";
+
+        debug("sending speech message: " + message);
+        return message;
+    }
+
+    function element_JSON_Info(flags, element)
+    {
+        let message = initSpeechMessage(false); //range == false
+
+        if(element.type === Element.NOTE || element.type === Element.REST)
+        {
+            if (flags & noteName)
+            {
+                message.pitch = getNotePitch(element);
+                message.tpc = element.tpc;
+            }
+
+            if (flags & durationName)
+            {
+                message.durationType = element.durationType.type;
+                message.durationDots = element.durationType.dots;
+            }
+
+            if (flags & beatNumber)
+                message.BEA = getElementBeat(element);
+
+            if (flags & measureNumber)
+                message.MEA = getElementMeasureNumber(element);
+
+            if (flags & staffNumber)
+                message.STA = getElementStaff(element);
+
+            if (flags & timeSignFraction)
+                message.TIM = element.timesigActual.numerator + "/" + element.timesigActual.denominator;
+
+            if (flags & clefName)
+                message.CLE = getElementClef(element);
+
+            if (flags & keySignName)
+                message.KEY = getElementKeySig(element);
+
+            if (flags & voiceNumber)
+                message.VOI = element.voice + 1;
+
+            if (flags & bpmNumber)
+                message.BPM = getElementBPM(element);
+        }
+        else
+        {
+            let name = element.userName() + " " + element.subtypeName();
+            message.elementName = name.toUpperCase().replace(" ", "_");
+        }
+        return JSON.stringify(message);
+    }
+
+    function range_JSON_Info(flags, elements)
+    {
+        let nEl = elements.length;
+        let startElement = elements[0];
+        let endElement = elements[nEl-1];
+        let message = initSpeechMessage(true); //range == true
+
+        message.RANGE = true;
+        message.beatStart = getElementBeat(startElement);
+        message.measureStart = getElementMeasureNumber(startElement);
+        message.staffStart = curScore.selection.startStaff + 1; // a bug?
+        message.beatEnd= getElementBeat(endElement);
+        message.measureEnd = getElementMeasureNumber(endElement);
+        message.staffEnd = curScore.selection.endStaff;
+        return JSON.stringify(message);
+    }
+    function debug(message)
+    {
+        console.log("ODLA-Debug: " + message);
+    }
+
     function printProperties(item)
     {
-        var properties = ""
-        for (var p in item)
+        let properties = ""
+        for (let p in item)
             if (typeof item[p] != "function" && typeof item[p] !== 'undefined')
                 console.log("property " + p + ": " + item[p] + "\n");
     }
 
     function printFunctions(item)
     {
-        var functions = ""
-        for (var f in item)
+        let functions = ""
+        for (let f in item)
             if (typeof item[f] == "function")
                 console.log("function: " + f + ": " + item[f] + "\n");
-    }
-
-    function debug(message)
-    {
-        console.log("ODLA-Debug: " + message);
     }
 }
