@@ -46,7 +46,7 @@ MuseScore
     Timer
     {
         id: newScoreOpenedTimer
-        interval: 500
+        interval: 1000
         running: true
         repeat: true
 
@@ -148,8 +148,10 @@ MuseScore
 
     function selectMeasures(p)
     {
-        let startTick = p.firstMeasure.firstSegment.tick;
-        let endTick = p.lastMeasure.lastSegment.tick;
+        var firstMeasure = getMeasure(p.firstMeasure);
+        var lastMeasure = getMeasure(p.lastMeasure);
+        let startTick = firstMeasure.firstSegment.tick;
+        let endTick = lastMeasure.lastSegment.tick;
         curScore.startCmd();
         curScore.selection.selectRange(startTick, endTick+1, 0, curScore.nstaves)
         curScore.endCmd();
@@ -258,20 +260,12 @@ MuseScore
         }
     }
 
-    function getTickElement(tick)
-    {
-        let currentTick = cursor.tick;
-        cursor.rewindToTick(tick);
-        let retVal = cursor.element;
-        cursor.rewindToTick(currentTick);
-        return retVal;
-    }
-
     /*
      * getNotePitch (Element) -> int
      * Get note pitch of Element or -1 if it's a pause
      */
-    function getNotePitch(element){
+    function getNotePitch(element)
+    {
         if(element.type === Element.NOTE)
             return element.pitch;
         if(element.type === Element.CHORD)
@@ -282,7 +276,8 @@ MuseScore
             return -2;
     }
 
-    function getElementStaff(element) {
+    function getElementStaff(element)
+    {
         for(let i = 0; i < curScore.nstaves; i++)
             if(element.staff.is(curScore.staves[i]))
                 return i+1;
@@ -399,13 +394,11 @@ MuseScore
     function stringBelow()
     {
         let nStrings = getStringNumber();
-
         if(cursor.stringNumber >= nStrings - 1)
         {
             cursor.stringNumber = nStrings - 1;
             return false;
         }
-
         curScore.startCmd();
         cursor.stringNumber ++;
         curScore.endCmd();
@@ -419,7 +412,6 @@ MuseScore
             cursor.stringNumber = 0;
             return false;
         }
-
         curScore.startCmd();
         cursor.stringNumber--;
         curScore.endCmd();
@@ -480,19 +472,8 @@ MuseScore
         }
     }
 
-    function newChordElement(typeString, symbol)
+    function newChordElement(type, symbol)
     {
-        let type = Element.INVALID;
-        switch(typeString)
-        {
-        case "addArticulation":
-            type = Element.ARTICULATION;
-            break;
-        case "addArpeggio":
-            type = Element.ARPEGGIO;
-            break;
-        }
-
         if(!chordElements[symbol.toString()])
         {
             chordElements[symbol.toString()] = newElement(type);
@@ -512,12 +493,7 @@ MuseScore
         curScore.endCmd();
     }
 
-    function addArpeggio(p)
-    {
-        addArticulation(p);
-    }
-
-    function addArticulation(p)
+    function addChordElement(p)
     {
         let elements = curScore.selection.elements;
         let chordElement = null;
@@ -530,7 +506,7 @@ MuseScore
                 let chord = elements[i].parent;
                 if(!chord.is(prevChord))
                 {
-                    chordElement = newChordElement(p.functionName, p.symbol).clone();
+                    chordElement = newChordElement(p.type, p.symbol).clone();
                     chord.add(chordElement);
                     prevChord = chord;
                 }
