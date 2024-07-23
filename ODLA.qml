@@ -14,7 +14,6 @@ MuseScore
     thumbnailName: "ODLA.png";
     requiresScore: false;
 
-    property bool chordActive: false;
     property var cursor: null;
     property var socket: null;
     property var lastScore: null;
@@ -422,7 +421,7 @@ MuseScore
     {
         // Add a dummy note
         curScore.startCmd();
-        cursor.addNote(1, chordActive & isChord);
+        cursor.addNote(1, /*chordActive & */isChord);
         // get the note just added
         let n = curScore.selection.elements[0];
         // If current selected element is a rest we insert a new note anyway
