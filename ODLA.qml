@@ -250,6 +250,15 @@ MuseScore
         }
     }
 
+    function isCursorInPitchedStaff()
+    {
+        try {
+            return curScore.staves[cursor.staffIdx].part.hasPitchedStaff;
+        } catch (error) {
+            return false;
+        }
+    }
+
     function isCursorInTablature()
     {
         try {
@@ -626,8 +635,17 @@ MuseScore
         {
             if (flags & noteName)
             {
+                if(isCursorInPitchedStaff())
+                {
+                    message.unpitched = false;
+                    message.tpc = element.tpc;
+                }
+                else
+                {
+                    message.unpitched = true;
+                }
                 message.pitch = getNotePitch(element);
-                message.tpc = element.tpc;
+
             }
 
             if (flags & durationName)
