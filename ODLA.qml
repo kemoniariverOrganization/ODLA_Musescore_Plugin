@@ -1,4 +1,4 @@
-//PLUGIN_VERSION:1.6.4
+//PLUGIN_VERSION:1.6.5
 import QtQuick 2.2;
 import QtWebSockets 1.5;
 import QtQuick.Controls 2.2;
