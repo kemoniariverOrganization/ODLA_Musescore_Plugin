@@ -1,4 +1,3 @@
-//PLUGIN_VERSION:1.6.5
 import QtQuick 2.2;
 import QtWebSockets 1.5;
 import QtQuick.Controls 2.2;
@@ -7,7 +6,7 @@ import MuseScore 3.0
 MuseScore
 {
     id: plugin;
-    version: "3.5";
+    version: "1.6.5";
     description: qsTr("This plugin allows the use of the ODLA keyboard in the Musescore program");
     title: "ODLA";
     categoryCode: "composing-arranging-tools"
@@ -213,19 +212,27 @@ MuseScore
     function goTo(p)
     {
         let currentMeasureNumber = getElementMeasureNumber(cursor.element);
+        let firstMeasure = curScore.firstMeasure;
+        let lastMeasure = curScore.lastMeasure;
+
+        if(p.value === -1)
+            p.value = getElementMeasureNumber(lastMeasure);
 
         while(currentMeasureNumber !== p.value)
         {
-            if(currentMeasureNumber > p.value)
+            let currentSelectedMeasure = getParentOfType(cursor.element, "Measure");
+            if(currentMeasureNumber > p.value && !currentSelectedMeasure.is(firstMeasure))
             {
                 cmd("notation-move-left-quickly");
                 currentMeasureNumber--;
             }
-            else
+            else if(currentMeasureNumber < p.value && !currentSelectedMeasure.is(lastMeasure))
             {
                 cmd("notation-move-right-quickly");
                 currentMeasureNumber++;
             }
+            else
+                break;
         }
     }
 
