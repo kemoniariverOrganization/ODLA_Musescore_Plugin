@@ -1,11 +1,10 @@
 import QtQuick 2.2;
-import QtWebSockets 1.5;
 import QtQuick.Controls 2.2;
 import MuseScore 3.0
 
 MuseScore
 {
-    id: plugin;
+    id: odla;
     version: "1.6.6";
     description: qsTr("This plugin allows the use of the ODLA keyboard in the Musescore program");
     title: "ODLA";
@@ -19,6 +18,9 @@ MuseScore
     property bool noteInput: false;
     property var chordElements: ({});
 
+    property int connectedToServerSocketId: -1
+    property int clientSocketId: -1
+
     readonly property int barline_NORMAL            : 1 << 0;
     readonly property int barline_DOUBLE            : 1 << 1;
     readonly property int barline_REPEAT_START      : 1 << 2;
@@ -28,25 +30,12 @@ MuseScore
     readonly property int barline_REPEAT_START_STOP : 1 << 6;
     readonly property int barline_DOTTED            : 1 << 7;
 
-    WebSocketServer
-    {
-        port: 6433
-        listen: true
-
-        onClientConnected: function(webSocket)
-        {
-            debug("Client connected");
-            socket = webSocket;
-            webSocket.onTextMessageReceived.connect(parseCommand);
-        }
-    }
-
     Timer
     {
-        id: newScoreOpenedTimer
-        interval: 1000
-        running: true
-        repeat: true
+        id: newScoreOpenedTimer;
+        interval: 1000;
+        running: true;
+        repeat: true;
 
         onTriggered:
         {
@@ -79,15 +68,24 @@ MuseScore
 
     onRun:
     {
-        debug("ODLA Plugin is running");
-        plugin = this;
+        debug("ODLA odla is running");
         newScoreOpenedTimer.start();
+
+        api.websocketserver.listen(6433, function(id)
+        {
+            debug("ODLA Server in listening");
+            if (odla.connectedToServerSocketId === -1)
+            {
+                odla.connectedToServerSocketId = id;
+                api.websocketserver.onMessage(odla.connectedToServerSocketId, odla.onMessageReceived)
+            }
+        });
     }
 
-    function parseCommand(command)
+    function onMessageReceived(msg)
     {
-        debug("Received command: " + command);
-        let odlaCommand = JSON.parse(command);
+        debug("Received message: " + msg);
+        let odlaCommand = JSON.parse(msg);
 
         if (curScore !== null)
         {
@@ -95,7 +93,7 @@ MuseScore
             {
                 debug("Creating and sending speech message");
                 let message = createSpeechMessage(odlaCommand.SpeechFlags);
-                socket.sendTextMessage(message);
+                api.websocketserver.send(odla.connectedToServerSocketId, message);
             }
             if ('note_entry' in odlaCommand)
             {
@@ -103,14 +101,14 @@ MuseScore
                 setNoteInputMode(odlaCommand.note_entry);
             }
 
-            if (typeof plugin[odlaCommand.functionName] === "function" && odlaCommand.functionName !== "undefined")
+            if (typeof odla[odlaCommand.functionName] === "function" && odlaCommand.functionName !== "undefined")
             {
                 debug("Executing function: " + odlaCommand.functionName);
-                plugin[odlaCommand.functionName](odlaCommand);
+                odla[odlaCommand.functionName](odlaCommand);
             }
         }
 
-        if (odlaCommand.functionName && typeof plugin[odlaCommand.functionName] !== 'function')
+        if (odlaCommand.functionName && typeof odla[odlaCommand.functionName] !== 'function')
         {
             debug("Executing shortcut: " + odlaCommand.functionName);
             executeShortcut(odlaCommand.functionName);
@@ -711,22 +709,22 @@ MuseScore
     }
     function debug(message)
     {
-        console.log("ODLA-Debug: " + message);
+        console.error("ODLA-Debug: " + message);
     }
 
     function printProperties(item)
     {
-        let properties = ""
+        let properties = "";
         for (let p in item)
             if (typeof item[p] != "function" && typeof item[p] !== 'undefined')
-                console.log("property " + p + ": " + item[p] + "\n");
+                debug("property " + p + ": " + item[p] + "\n");
     }
 
     function printFunctions(item)
     {
-        let functions = ""
+        let functions = "";
         for (let f in item)
             if (typeof item[f] == "function")
-                console.log("function: " + f + ": " + item[f] + "\n");
+                debug("function: " + f + ": " + item[f] + "\n");
     }
 }
