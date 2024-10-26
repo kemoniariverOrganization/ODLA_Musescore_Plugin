@@ -5,7 +5,7 @@ import MuseScore 3.0
 MuseScore
 {
     id: odla;
-    version: "1.6.6";
+    version: "1.7.0";
     description: qsTr("This plugin allows the use of the ODLA keyboard in the Musescore program");
     title: "ODLA";
     categoryCode: "composing-arranging-tools"
@@ -465,6 +465,7 @@ MuseScore
         else
             cmd("sharp2-post");
         note.accidentalType = Accidental.NONE;
+        cmd("undo");
     }
 
     function adjustNote(note, odlaKey)
