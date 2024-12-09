@@ -74,11 +74,8 @@ MuseScore
         api.websocketserver.listen(6433, function(id)
         {
             debug("ODLA Server in listening");
-            if (odla.connectedToServerSocketId === -1)
-            {
-                odla.connectedToServerSocketId = id;
-                api.websocketserver.onMessage(odla.connectedToServerSocketId, odla.onMessageReceived)
-            }
+            odla.connectedToServerSocketId = id;
+            api.websocketserver.onMessage(odla.connectedToServerSocketId, odla.onMessageReceived);
         });
     }
 
@@ -89,10 +86,10 @@ MuseScore
 
         if (curScore !== null)
         {
-            if ('SpeechFlags' in odlaCommand)
+            if ('speech_flags' in odlaCommand)
             {
                 debug("Creating and sending speech message");
-                let message = createSpeechMessage(odlaCommand.SpeechFlags);
+                let message = createSpeechMessage(odlaCommand.speech_flags);
                 api.websocketserver.send(odla.connectedToServerSocketId, message);
             }
             if ('note_entry' in odlaCommand)
@@ -606,7 +603,7 @@ MuseScore
         let message = {};
 
         // This message is different from old version
-        message.version = "MS4";
+        message.version = "ms4";
 
         // Return package initialized
         return message;
@@ -627,7 +624,7 @@ MuseScore
         else
             debug("No element info for speech");
         if(flags & inputState)
-            message.IN = noteInput ? "INPUT_ON": "INPUT_OFF";
+            message.IN = noteInput ? "input_on": "input_off";
 
         debug("sending speech message: " + message);
         return message;
@@ -661,28 +658,28 @@ MuseScore
             }
 
             if (flags & beatNumber)
-                message.BEA = getElementBeat(element);
+                message.bea = getElementBeat(element);
 
             if (flags & measureNumber)
-                message.MEA = getElementMeasureNumber(element);
+                message.mea = getElementMeasureNumber(element);
 
             if (flags & staffNumber)
-                message.STA = getElementStaff(element);
+                message.sta = getElementStaff(element);
 
             if (flags & timeSignFraction)
-                message.TIM = element.timesigActual.numerator + "/" + element.timesigActual.denominator;
+                message.tim = element.timesigActual.numerator + "/" + element.timesigActual.denominator;
 
             if (flags & clefName)
-                message.CLE = getElementClef(element);
+                message.cle = getElementClef(element);
 
             if (flags & keySignName)
-                message.KEY = getElementKeySig(element);
+                message.key = getElementKeySig(element);
 
             if (flags & voiceNumber)
-                message.VOI = element.voice + 1;
+                message.voi = element.voice + 1;
 
             if (flags & bpmNumber)
-                message.BPM = getElementBPM(element);
+                message.bpm = getElementBPM(element);
         }
         else
         {
@@ -699,7 +696,7 @@ MuseScore
         let endElement = elements[nEl-1];
         let message = initSpeechMessage(true); //range == true
 
-        message.RANGE = true;
+        message.range = true;
         message.beatStart = getElementBeat(startElement);
         message.measureStart = getElementMeasureNumber(startElement);
         message.staffStart = curScore.selection.startStaff + 1; // a bug?
