@@ -5,7 +5,7 @@ import MuseScore 3.0
 MuseScore
 {
     id: odla;
-    version: "1.7.0";
+    version: "1.7.1";
     description: qsTr("This plugin allows the use of the ODLA keyboard in the Musescore program");
     title: "ODLA";
     categoryCode: "composing-arranging-tools"
@@ -15,6 +15,7 @@ MuseScore
     property var cursor: null;
     property var socket: null;
     property var lastScore: null;
+    property int lastVoice: 0;
     property bool noteInput: false;
     property var chordElements: ({});
 
@@ -68,7 +69,7 @@ MuseScore
 
     onRun:
     {
-        debug("ODLA odla is running");
+        debug("ODLA plugin is running on Musescore version " + mscoreVersion);
         newScoreOpenedTimer.start();
 
         api.websocketserver.listen(6433, function(id)
@@ -245,7 +246,10 @@ MuseScore
     {
         if(status === true && (noteInput === false || curScore.selection.elements.length === 0))
         {
-            cmd("note-input-steptime");
+            if(mscoreVersion >= 40500)
+                cmd("note-input-by-note-name");
+            else
+                cmd("note-input-steptime");
             noteInput = true;
         }
         else if(status === false && noteInput === true)
@@ -435,7 +439,14 @@ MuseScore
     {
         // Add a dummy note
         curScore.startCmd();
-        cursor.addNote(1, /*chordActive & */isChord);
+        debug("lastVoice: " + lastVoice + " cursor.voice: " + cursor.voice);
+
+        if(cursor.voice === lastVoice)
+            cursor.addNote(1, isChord);
+        else
+            cursor.addNote(1, false);
+        lastVoice = cursor.voice;
+
         // get the note just added
         let n = curScore.selection.elements[0];
         // If current selected element is a rest we insert a new note anyway
@@ -488,10 +499,13 @@ MuseScore
 
     function newChordElement(type, symbol)
     {
+        // type and symbls are  from \MuseScore4\src\engraving\api\v1\apitypes.h
+        debug("type: " + type + " symbol: " + symbol);
+
         if(!chordElements[symbol.toString()])
         {
-            chordElements[symbol.toString()] = newElement(type);
-            chordElements[symbol.toString()].symbol = symbol;
+            chordElements[symbol.toString()] = newElement(Element[type]);
+            chordElements[symbol.toString()].symbol = SymId[symbol];
         }
         return chordElements[symbol.toString()].clone();
     }
