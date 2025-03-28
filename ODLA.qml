@@ -70,6 +70,8 @@ MuseScore
     onRun:
     {
         debug("ODLA plugin is running on Musescore version " + mscoreVersion);
+        // first articulation loading is slow, so we load it now
+        newChordElement("ARTICULATION", "articStaccatoAbove");
         newScoreOpenedTimer.start();
 
         api.websocketserver.listen(6433, function(id)
