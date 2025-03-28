@@ -71,7 +71,7 @@ MuseScore
     {
         debug("ODLA plugin is running on Musescore version " + mscoreVersion);
         // first articulation loading is slow, so we load it now
-        newChordElement("ARTICULATION", "articStaccatoAbove");
+        newElementFromSymbol("ARTICULATION", "articStaccatoAbove");
         newScoreOpenedTimer.start();
 
         api.websocketserver.listen(6433, function(id)
@@ -499,7 +499,7 @@ MuseScore
         }
     }
 
-    function newChordElement(type, symbol)
+    function newElementFromSymbol(type, symbol)
     {
         // type and symbls are  from \MuseScore4\src\engraving\api\v1\apitypes.h
         debug("type: " + type + " symbol: " + symbol);
@@ -523,26 +523,35 @@ MuseScore
         curScore.endCmd();
     }
 
-    function addChordElement(p)
+    function addElement(p)
     {
         let elements = curScore.selection.elements;
         let chordElement = null;
         let prevChord = null;
-        curScore.startCmd();
-        for(let i = 0; i < elements.length; i++)
+
+        if(elements.length === 0)
+            return;
+        if(elements.length === 1)
         {
-            if(elements[i].type === Element.NOTE)
-            {
-                let chord = elements[i].parent;
-                if(!chord.is(prevChord))
-                {
-                    chordElement = newChordElement(p.type, p.symbol).clone();
-                    chord.add(chordElement);
-                    prevChord = chord;
-                }
-            }
+            curScore.startCmd();
+            let e = newElementFromSymbol(p.type, p.symbol).clone();
+            cursor.add(e);
+            printProperties(e);
+            curScore.endCmd();
+            return;
         }
-        curScore.endCmd();
+        else
+        {
+            curScore.startCmd();
+            let seg = getParentOfType(elements[0], "Segment");
+            cursor.rewindToTick(seg.tick);
+            for(let i = 0; i < elements.length; i++)
+            {
+                cursor.add(newElementFromSymbol(p.type, p.symbol).clone());
+                cursor.next();
+            }
+            curScore.endCmd();
+        }
     }
 
     function executeShortcut(command)
