@@ -5,7 +5,7 @@ import MuseScore 3.0
 MuseScore
 {
     id: odla;
-    version: "1.7.2";
+    version: "1.7.3";
     description: qsTr("This plugin allows the use of the ODLA keyboard in the Musescore program");
     title: "ODLA";
     categoryCode: "composing-arranging-tools"
