@@ -17,7 +17,6 @@ MuseScore
     property var lastScore: null;
     property int lastVoice: 0;
     property bool noteInput: false;
-    property var chordElements: ({});
 
     property int connectedToServerSocketId: -1
     property int clientSocketId: -1
@@ -70,13 +69,17 @@ MuseScore
     onRun:
     {
         debug("ODLA plugin is running on Musescore version " + mscoreVersion);
+
+        // Prova a connetterti al segnale di chiusura dell'app
+        if (Qt.application && Qt.application.aboutToQuit)
+            Qt.application.aboutToQuit.connect(sendShuttingDown);
+
         // first articulation loading is slow, so we load it now
-        newElementFromSymbol("ARTICULATION", "articStaccatoAbove");
         newScoreOpenedTimer.start();
 
         api.websocketserver.listen(6433, function(id)
         {
-            debug("ODLA Server in listening");
+            debug("ODLA Server in listening from client: " + id);
             if (odla.connectedToServerSocketId === -1)
             {
                 odla.connectedToServerSocketId = id;
@@ -120,7 +123,6 @@ MuseScore
 
     function setBarline(p)
     {
-
         let prevTick = cursor.tick;
         cursor.filter = Segment.BarLineType;
         if(p.value === barline_REPEAT_START)
@@ -499,19 +501,6 @@ MuseScore
         }
     }
 
-    function newElementFromSymbol(type, symbol)
-    {
-        // type and symbls are  from \MuseScore4\src\engraving\api\v1\apitypes.h
-        debug("type: " + type + " symbol: " + symbol);
-
-        if(!chordElements[symbol.toString()])
-        {
-            chordElements[symbol.toString()] = newElement(Element[type]);
-            chordElements[symbol.toString()].symbol = SymId[symbol];
-        }
-        return chordElements[symbol.toString()].clone();
-    }
-
     function removeAccidental(p)
     {
         debug(p);
@@ -526,15 +515,14 @@ MuseScore
     function addElement(p)
     {
         let elements = curScore.selection.elements;
-        let chordElement = null;
-        let prevChord = null;
 
         if(elements.length === 0)
             return;
         if(elements.length === 1)
         {
             curScore.startCmd();
-            let e = newElementFromSymbol(p.type, p.symbol).clone();
+            let e = newElement(Element[p.type]);
+            e.symbol = SymId[p.symbol];
             cursor.add(e);
             printProperties(e);
             curScore.endCmd();
@@ -547,7 +535,9 @@ MuseScore
             cursor.rewindToTick(seg.tick);
             for(let i = 0; i < elements.length; i++)
             {
-                cursor.add(newElementFromSymbol(p.type, p.symbol).clone());
+                let e = newElement(Element[p.type]);
+                e.symbol = SymId[p.symbol];
+                cursor.add(e);
                 cursor.next();
             }
             curScore.endCmd();
@@ -752,5 +742,11 @@ MuseScore
         for (let f in item)
             if (typeof item[f] == "function")
                 debug("function: " + f + ": " + item[f] + "\n");
+    }
+
+    function sendShuttingDown()
+    {
+        debug("Quitting");
+        Qt.quit();
     }
 }
