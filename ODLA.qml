@@ -5,7 +5,7 @@ import MuseScore 3.0
 MuseScore
 {
     id: odla;
-    version: "1.7.4";
+    version: "1.7.5";
     description: qsTr("This plugin allows the use of the ODLA keyboard in the Musescore program");
     title: "ODLA";
     categoryCode: "composing-arranging-tools"
@@ -18,8 +18,8 @@ MuseScore
     property int lastVoice: 0;
     property bool noteInput: false;
 
-    property int connectedToServerSocketId: -1
-    property int clientSocketId: -1
+    property int connectedToServerSocketId: -1;
+    property int clientSocketId: -1;
 
     readonly property int barline_NORMAL            : 1 << 0;
     readonly property int barline_DOUBLE            : 1 << 1;
@@ -92,32 +92,42 @@ MuseScore
     {
         debug("Received message: " + msg);
         let odlaCommand = JSON.parse(msg);
+        const fn = odlaCommand.functionName;
 
         if (curScore !== null)
         {
             if ('SpeechFlags' in odlaCommand)
             {
                 debug("Creating and sending speech message");
-                let message = createSpeechMessage(odlaCommand.SpeechFlags);
+                const message = createSpeechMessage(odlaCommand.SpeechFlags);
                 api.websocketserver.send(odla.connectedToServerSocketId, message);
             }
+
             if ('note_entry' in odlaCommand)
             {
                 debug("Executing setNoteInputMode");
                 setNoteInputMode(odlaCommand.note_entry);
             }
 
-            if (typeof odla[odlaCommand.functionName] === "function" && odlaCommand.functionName !== "undefined")
+            if (fn === "quit")
             {
-                debug("Executing function: " + odlaCommand.functionName);
-                odla[odlaCommand.functionName](odlaCommand);
+                debug("Forced shortcut execution: quit");
+                executeShortcut("quit");
+                return;
+            }
+
+            if (typeof odla[fn] === "function")
+            {
+                debug("Executing function: " + fn);
+                odla[fn](odlaCommand);
+                return;
             }
         }
 
-        if (odlaCommand.functionName && typeof odla[odlaCommand.functionName] !== 'function')
+        if (fn && typeof odla[fn] !== "function")
         {
-            debug("Executing shortcut: " + odlaCommand.functionName);
-            executeShortcut(odlaCommand.functionName);
+            debug("Executing shortcut: " + fn);
+            executeShortcut(fn);
         }
     }
 
